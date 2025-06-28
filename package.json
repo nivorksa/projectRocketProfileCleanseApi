@@ -1,22 +1,28 @@
 {
   "name": "projectrocketprofilecheckapi",
   "version": "1.0.0",
-  "main": "index.js",
+  "type": "module",
+  "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "nodemon server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "axios": "^1.10.0",
     "cors": "^2.8.5",
     "csv-parser": "^3.2.0",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "gologin": "^2.1.25",
     "json2csv": "^6.0.0-alpha.2",
     "multer": "^2.0.1",
     "puppeteer": "^24.11.0",
     "puppeteer-core": "^24.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }
