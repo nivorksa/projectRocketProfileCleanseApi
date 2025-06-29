@@ -25,11 +25,11 @@ const scrapeData = async (
   headerRow.getCell(1).value = "Verification Result";
   headerRow.commit();
 
-  // Build a header map to quickly find column indexes by header name
   const headerMap = {};
   headerRow.values.forEach((val, idx) => {
     if (typeof val === "string") {
-      headerMap[val.trim().toLowerCase()] = idx;
+      // Clean: remove spaces, convert to lowercase
+      headerMap[val.trim().toLowerCase().replace(/\s+/g, " ")] = idx;
     }
   });
 
@@ -54,14 +54,50 @@ const scrapeData = async (
 
       const isLocked = await page.evaluate(() => {
         const text = document.body.innerText.toLowerCase();
-        return (
+
+        const isSalesNavLocked =
+          text.includes("you can't view this profile") ||
+          text.includes("upgrade to unlock profiles") ||
+          text.includes("profile unavailable") ||
           text.includes("this profile is not available") ||
           text.includes("you do not have access to this profile") ||
-          text.includes("content unavailable")
-        );
+          text.includes("content unavailable");
+
+        const hasNoNameOrTitle =
+          !document.querySelector('[data-anonymize="person-name"]') &&
+          !document.querySelector('[data-anonymize="headline"]');
+
+        return isSalesNavLocked || hasNoNameOrTitle;
       });
 
-      if (isLocked) {
+      const scrapedData = await page.evaluate(() => {
+        const name =
+          document
+            .querySelector('[data-anonymize="person-name"]')
+            ?.innerText.trim() || "";
+
+        const title =
+          document
+            .querySelector('[data-anonymize="headline"]')
+            ?.innerText.trim() || "";
+
+        let company = "";
+
+        // Try to get present company from the "current company" section
+        const currentCompanyElement = document.querySelector(
+          'div[data-test-lead-info-section="currentCompany"] a'
+        );
+        if (currentCompanyElement) {
+          company = currentCompanyElement.innerText.trim();
+        } else if (title.includes(" at ")) {
+          // Fallback: extract company from the headline
+          company = title.split(" at ")[1].trim();
+        }
+
+        return { name, title, company };
+      });
+
+      if (isLocked || (!scrapedData.name && !scrapedData.title)) {
         onLog(`Row ${i}: locked`);
         row.getCell(1).value = "locked";
         row.commit();
@@ -69,36 +105,10 @@ const scrapeData = async (
         continue;
       }
 
-      const scrapedData = await page.evaluate(() => {
-        const name =
-          document.querySelector(".text-heading-xlarge")?.innerText.trim() ||
-          "";
-        const title =
-          document
-            .querySelector(".text-body-medium.break-words")
-            ?.innerText.trim() || "";
-
-        // Get the PRESENT company
-        const experienceSection = document.querySelector(
-          "#experience ~ .pvs-list"
-        );
-        const firstExperience = experienceSection?.querySelector("li");
-
-        let company = "";
-        if (firstExperience) {
-          const companyElement = firstExperience.querySelector(".mr1 span");
-          if (companyElement) {
-            company = companyElement.innerText.trim();
-          }
-        }
-
-        return { name, title, company };
-      });
-
       let matched = true;
 
       for (const colName of columnsToVerify) {
-        const colNameLower = colName.trim().toLowerCase();
+        const colNameLower = colName.trim().toLowerCase().replace(/\s+/g, " ");
         const headerCellIndex = headerMap[colNameLower];
 
         if (!headerCellIndex) {

@@ -46,9 +46,13 @@ export const scrapeProfiles = async (req, res, next) => {
 
     const worksheet = workbook.getWorksheet(sheetName);
 
+    // 🔥 You forgot this line
     const headerRow = worksheet.getRow(1);
+
     const urlColumnIndex = headerRow.values.findIndex(
-      (val) => val === urlColumn
+      (val) =>
+        typeof val === "string" &&
+        val.trim().toLowerCase() === urlColumn.trim().toLowerCase()
     );
 
     if (urlColumnIndex === -1) {
