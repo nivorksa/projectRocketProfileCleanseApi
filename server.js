@@ -1,8 +1,15 @@
 import express from "express";
 import cors from "cors";
+import multer from "multer";
+import path from "path";
 import http from "http";
-// import fileRoutes from "./routes/file.route.js";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import fileRoutes from "./routes/file.route.js";
 import { allowedOrigins } from "./utils/config.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -21,11 +28,12 @@ app.use(
   })
 );
 
-// JSON parsing
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json());
 
-// API routes
-// app.use("/api/file", fileRoutes);
+const upload = multer({ dest: "uploads/" });
+
+// API routes with upload middleware
+app.use("/api/file", fileRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
