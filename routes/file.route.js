@@ -6,6 +6,7 @@ import {
   scrapeProfiles,
   stopScraping,
   scrapeProfilesStream,
+  downloadFile,
 } from "../controllers/file.controller.js";
 
 const router = express.Router();
@@ -15,5 +16,6 @@ router.post("/process", processFile);
 router.post("/scrape", scrapeProfiles);
 router.post("/stop", stopScraping);
 router.get("/scrape/stream", scrapeProfilesStream); // SSE streaming endpoint
+router.get("/download", downloadFile);
 
 export default router;

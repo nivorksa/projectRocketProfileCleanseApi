@@ -1,5 +1,7 @@
 import ExcelJS from "exceljs";
 import scrapeData from "../utils/scraper.js";
+import fs from "fs";
+import path from "path";
 
 let filePath = "";
 let sheetsData = {};
@@ -122,7 +124,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    scrapingStopped = false; // reset stop flag on new scrape
+    scrapingStopped = false;
 
     const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
 
@@ -172,13 +174,17 @@ export const scrapeProfilesStream = async (req, res, next) => {
           get stopped() {
             return scrapingStopped;
           },
-          filePath, // pass for saving during scraping
+          filePath,
         }
       );
 
       await workbook.xlsx.writeFile(filePath);
 
-      sendEvent({ done: true, filePath });
+      if (scrapingStopped) {
+        sendEvent({ stopped: true, filePath });
+      } else {
+        sendEvent({ done: true, filePath });
+      }
 
       res.end();
     } catch (scrapeErr) {
@@ -197,4 +203,28 @@ export const scrapeProfilesStream = async (req, res, next) => {
 export const stopScraping = (req, res) => {
   scrapingStopped = true;
   res.status(200).json({ message: "Scraping stopped" });
+};
+
+export const downloadFile = (req, res) => {
+  const { path: fileToDownload } = req.query;
+
+  if (!fileToDownload) {
+    return res.status(400).json({ message: "File path is required" });
+  }
+
+  // Make sure path is safe and file exists
+  // Adjust base directory if needed to avoid path traversal vulnerabilities
+  const absolutePath = path.resolve(fileToDownload);
+
+  fs.access(absolutePath, fs.constants.F_OK, (err) => {
+    if (err) {
+      return res.status(404).json({ message: "File not found" });
+    }
+    res.download(absolutePath, (downloadErr) => {
+      if (downloadErr) {
+        console.error("Download error:", downloadErr);
+        res.status(500).end();
+      }
+    });
+  });
 };

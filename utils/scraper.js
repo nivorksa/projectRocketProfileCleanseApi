@@ -22,10 +22,11 @@ const scrapeData = async (
   const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
   const page = await browser.newPage();
 
-  // Create or overwrite Note header in col 1
-  const headerRow = worksheet.getRow(1);
-  headerRow.getCell(1).value = "Note";
-  headerRow.commit();
+  // Insert new "Note" column at position 1 (this shifts all columns and data to the right automatically)
+  worksheet.spliceColumns(1, 0, ["Note"]);
+
+  // Commit header row change
+  worksheet.getRow(1).commit();
 
   for (let i = 2; i <= worksheet.rowCount; i++) {
     if (stopFlag.stopped) {
@@ -36,17 +37,19 @@ const scrapeData = async (
     const row = worksheet.getRow(i);
 
     try {
+      // Remember: since we inserted a new column at index 1,
+      // all previous columns are shifted right by 1,
+      // so companyColumnIndex and urlColumnIndex are incremented by 1 for actual cells
       const companyFromExcel = row
-        .getCell(companyColumnIndex)
+        .getCell(companyColumnIndex + 1)
         .text.trim()
         .toLowerCase();
-      const profileUrl = row.getCell(urlColumnIndex).text.trim();
+      const profileUrl = row.getCell(urlColumnIndex + 1).text.trim();
 
       if (!profileUrl.startsWith("http")) {
         onLog(`Row ${i}: Invalid URL`);
         row.getCell(1).value = "error";
         row.commit();
-        // Save after update
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
         continue;
       }
