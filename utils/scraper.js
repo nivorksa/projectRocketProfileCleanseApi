@@ -37,9 +37,6 @@ const scrapeData = async (
     const row = worksheet.getRow(i);
 
     try {
-      // Remember: since we inserted a new column at index 1,
-      // all previous columns are shifted right by 1,
-      // so companyColumnIndex and urlColumnIndex are incremented by 1 for actual cells
       const companyFromExcel = row
         .getCell(companyColumnIndex + 1)
         .text.trim()
@@ -61,21 +58,27 @@ const scrapeData = async (
 
       await delay(5000);
 
+      // Improved locked profile detection
       const isLocked = await page.evaluate(() => {
-        const bodyText = document.body.innerText.toLowerCase();
-        return (
-          bodyText.includes("you can't view this profile") ||
-          bodyText.includes("upgrade to unlock profiles") ||
-          bodyText.includes("profile unavailable") ||
-          bodyText.includes("this profile is not available") ||
-          bodyText.includes("you do not have access to this profile") ||
-          bodyText.includes("content unavailable")
+        const nameHeader = document.querySelector(
+          'h1[data-anonymize="person-name"]'
         );
+        const isNameLinkedInMember =
+          nameHeader?.innerText.trim() === "LinkedIn Member";
+
+        const unlockButton = Array.from(
+          document.querySelectorAll("button")
+        ).find(
+          (btn) => btn.innerText.trim().toLowerCase() === "unlock full profile"
+        );
+
+        return isNameLinkedInMember || !!unlockButton;
       });
 
       if (isLocked) {
         onLog(`Row ${i}: profile appears locked`);
-        row.getCell(1).value = "locked";
+        // Leave note column empty for locked profiles
+        row.getCell(1).value = "";
         row.commit();
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
         await delay(getRandomDelay());
@@ -105,7 +108,8 @@ const scrapeData = async (
         continue;
       }
 
-      if (scrapedCompany.includes(companyFromExcel)) {
+      // Exact string comparison for company names
+      if (scrapedCompany === companyFromExcel) {
         row.getCell(1).value = "good";
         onLog(
           `Row ${i}: Match -> Excel: "${companyFromExcel}", SalesNav: "${scrapedCompany}"`
