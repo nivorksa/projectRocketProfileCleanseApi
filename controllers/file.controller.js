@@ -108,6 +108,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
   try {
     const {
       sheetName,
+      fullNameColumn,
+      jobTitleColumn,
       companyColumn,
       urlColumn,
       goLoginToken,
@@ -116,6 +118,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
 
     if (
       !sheetName ||
+      !fullNameColumn ||
+      !jobTitleColumn ||
       !companyColumn ||
       !urlColumn ||
       !goLoginToken ||
@@ -132,42 +136,55 @@ export const scrapeProfilesStream = async (req, res, next) => {
     await workbook.xlsx.readFile(filePath);
 
     const worksheet = workbook.getWorksheet(sheetName);
-
     const headerRow = worksheet.getRow(1);
-    const headerValuesNormalized = headerRow.values.map((val) =>
-      typeof val === "string" ? val.trim().toLowerCase() : val
+    const headers = headerRow.values.map((v) =>
+      typeof v === "string" ? v.trim().toLowerCase() : v
     );
 
-    const urlColumnIndex = headerValuesNormalized.findIndex(
-      (val) => val === urlColumn.trim().toLowerCase()
-    );
-    const companyColumnIndex = headerValuesNormalized.findIndex(
-      (val) => val === companyColumn.trim().toLowerCase()
-    );
+    const getIndex = (name) =>
+      headers.findIndex((v) => v === name.trim().toLowerCase());
 
-    if (urlColumnIndex === -1 || urlColumnIndex === 0) {
-      return res.status(400).json({ message: "URL column not found." });
-    }
-    if (companyColumnIndex === -1 || companyColumnIndex === 0) {
-      return res.status(400).json({ message: "Company column not found." });
+    const fullNameColumnIndex = getIndex(fullNameColumn);
+    const jobTitleColumnIndex = getIndex(jobTitleColumn);
+    const companyColumnIndex = getIndex(companyColumn);
+    const urlColumnIndex = getIndex(urlColumn);
+
+    if (
+      [
+        fullNameColumnIndex,
+        jobTitleColumnIndex,
+        companyColumnIndex,
+        urlColumnIndex,
+      ].some((i) => i <= 0)
+    ) {
+      return res
+        .status(400)
+        .json({ message: "One or more columns not found." });
     }
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no", // 🔥 Important for proxies
     });
     res.flushHeaders();
 
     const sendEvent = (data) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
+      // ❌ REMOVE: res.flush();
+      // Node automatically sends data with res.write for SSE
     };
 
     try {
       await scrapeData(
         worksheet,
-        companyColumnIndex,
-        urlColumnIndex,
+        {
+          fullNameColumnIndex,
+          jobTitleColumnIndex,
+          companyColumnIndex,
+          urlColumnIndex,
+        },
         goLogin,
         sendEvent,
         {
@@ -192,9 +209,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
       res.end();
     }
   } catch (err) {
-    if (!res.headersSent) {
-      return next(err);
-    }
+    if (!res.headersSent) next(err);
     res.end();
   }
 };

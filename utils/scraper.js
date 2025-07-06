@@ -6,8 +6,12 @@ const getRandomDelay = () => Math.floor(Math.random() * 4000) + 3000;
 
 const scrapeData = async (
   worksheet,
-  companyColumnIndex,
-  urlColumnIndex,
+  {
+    fullNameColumnIndex,
+    jobTitleColumnIndex,
+    companyColumnIndex,
+    urlColumnIndex,
+  },
   goLoginCredentials,
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
@@ -16,35 +20,40 @@ const scrapeData = async (
 
   const GL = new GoLogin({ token, profile_id: profileId });
   const { status, wsUrl } = await GL.start();
-
   if (status !== "success") throw new Error("GoLogin profile failed to start");
 
   const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
   const page = await browser.newPage();
 
-  // Insert new "Note" column at position 1 (this shifts all columns and data to the right automatically)
   worksheet.spliceColumns(1, 0, ["Note"]);
-
-  // Commit header row change
   worksheet.getRow(1).commit();
 
   for (let i = 2; i <= worksheet.rowCount; i++) {
     if (stopFlag.stopped) {
-      onLog(`Scraping stopped at row ${i}`);
+      onLog({ message: `Scraping stopped at row ${i}` });
       break;
     }
 
     const row = worksheet.getRow(i);
 
     try {
+      const profileUrl = row.getCell(urlColumnIndex + 1).text.trim();
+
+      const fullNameFromExcel = row
+        .getCell(fullNameColumnIndex + 1)
+        .text.trim()
+        .toLowerCase();
+      const jobTitleFromExcel = row
+        .getCell(jobTitleColumnIndex + 1)
+        .text.trim()
+        .toLowerCase();
       const companyFromExcel = row
         .getCell(companyColumnIndex + 1)
         .text.trim()
         .toLowerCase();
-      const profileUrl = row.getCell(urlColumnIndex + 1).text.trim();
 
       if (!profileUrl.startsWith("http")) {
-        onLog(`Row ${i}: Invalid URL`);
+        onLog({ message: `Row ${i}: Invalid URL` });
         row.getCell(1).value = "error";
         row.commit();
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
@@ -55,78 +64,71 @@ const scrapeData = async (
         waitUntil: "domcontentloaded",
         timeout: 60000,
       });
-
       await delay(5000);
 
-      // Improved locked profile detection
       const isLocked = await page.evaluate(() => {
         const nameHeader = document.querySelector(
           'h1[data-anonymize="person-name"]'
         );
-        const isNameLinkedInMember =
-          nameHeader?.innerText.trim() === "LinkedIn Member";
-
         const unlockButton = Array.from(
           document.querySelectorAll("button")
         ).find(
           (btn) => btn.innerText.trim().toLowerCase() === "unlock full profile"
         );
-
-        return isNameLinkedInMember || !!unlockButton;
+        return (
+          nameHeader?.innerText.trim() === "LinkedIn Member" || !!unlockButton
+        );
       });
 
       if (isLocked) {
-        onLog(`Row ${i}: profile appears locked`);
-        // Leave note column empty for locked profiles
-        row.getCell(1).value = "";
+        onLog({ message: `Row ${i}: Locked profile` });
+        row.getCell(1).value = "locked";
         row.commit();
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
         await delay(getRandomDelay());
         continue;
       }
 
-      // Extract current company
-      const scrapedCompany = await page.evaluate(() => {
-        const currentRoleSection = document.querySelector(
-          '[data-sn-view-name="lead-current-role"]'
+      const profileData = await page.evaluate(() => {
+        const fullNameEl = document.querySelector(
+          'h1[data-anonymize="person-name"]'
         );
-
-        if (!currentRoleSection) return "";
-
-        const companyLink = currentRoleSection.querySelector(
-          'a[data-anonymize="company-name"]'
+        const jobTitleEl = document.querySelector(
+          'span[data-anonymize="job-title"]'
         );
-        return companyLink?.innerText?.trim()?.toLowerCase() || "";
+        const companyEl = document.querySelector(
+          '[data-sn-view-name="lead-current-role"] a[data-anonymize="company-name"]'
+        );
+        return {
+          fullName: fullNameEl?.innerText?.trim()?.toLowerCase() || "",
+          jobTitle: jobTitleEl?.innerText?.trim()?.toLowerCase() || "",
+          company: companyEl?.innerText?.trim()?.toLowerCase() || "",
+        };
       });
 
-      if (!scrapedCompany) {
-        onLog(`Row ${i}: no company info found on profile`);
-        row.getCell(1).value = "no company info";
-        row.commit();
-        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
-        await delay(getRandomDelay());
-        continue;
-      }
+      const matches = {
+        fullName: profileData.fullName === fullNameFromExcel,
+        jobTitle: profileData.jobTitle === jobTitleFromExcel,
+        company: profileData.company === companyFromExcel,
+      };
 
-      // Exact string comparison for company names
-      if (scrapedCompany === companyFromExcel) {
+      if (matches.fullName && matches.jobTitle && matches.company) {
         row.getCell(1).value = "good";
-        onLog(
-          `Row ${i}: Match -> Excel: "${companyFromExcel}", SalesNav: "${scrapedCompany}"`
-        );
+        onLog({
+          message: `Row ${i}: Match | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}]`,
+        });
       } else {
         row.getCell(1).value = "bad";
-        onLog(
-          `Row ${i}: Mismatch -> Excel: "${companyFromExcel}", SalesNav: "${scrapedCompany}"`
-        );
+        onLog({
+          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}]`,
+        });
       }
 
       row.commit();
       await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
-
       await delay(getRandomDelay());
     } catch (err) {
-      onLog(`Row ${i}: error - ${err.message}`);
+      onLog({ message: `Row ${i}: Error - ${err.message}` });
       row.getCell(1).value = "error";
       row.commit();
       await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
