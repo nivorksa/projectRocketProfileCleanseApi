@@ -6,10 +6,11 @@ const getRandomDelay = () => Math.floor(Math.random() * 4000) + 3000;
 
 const scrapeData = async (
   worksheet,
-  columnsToVerify,
+  companyColumnIndex,
   urlColumnIndex,
   goLoginCredentials,
-  onLog = () => {}
+  onLog = () => {},
+  stopFlag = { stopped: false, filePath: "" }
 ) => {
   const { token, profileId } = goLoginCredentials;
 
@@ -21,28 +22,32 @@ const scrapeData = async (
   const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
   const page = await browser.newPage();
 
+  // Create or overwrite Note header in col 1
   const headerRow = worksheet.getRow(1);
-  headerRow.getCell(1).value = "Verification Result";
+  headerRow.getCell(1).value = "Note";
   headerRow.commit();
 
-  const headerMap = {};
-  headerRow.values.forEach((val, idx) => {
-    if (typeof val === "string") {
-      // Clean: remove spaces, convert to lowercase
-      headerMap[val.trim().toLowerCase().replace(/\s+/g, " ")] = idx;
-    }
-  });
-
   for (let i = 2; i <= worksheet.rowCount; i++) {
+    if (stopFlag.stopped) {
+      onLog(`Scraping stopped at row ${i}`);
+      break;
+    }
+
     const row = worksheet.getRow(i);
 
     try {
+      const companyFromExcel = row
+        .getCell(companyColumnIndex)
+        .text.trim()
+        .toLowerCase();
       const profileUrl = row.getCell(urlColumnIndex).text.trim();
 
       if (!profileUrl.startsWith("http")) {
         onLog(`Row ${i}: Invalid URL`);
         row.getCell(1).value = "error";
         row.commit();
+        // Save after update
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
         continue;
       }
 
@@ -50,105 +55,74 @@ const scrapeData = async (
         waitUntil: "domcontentloaded",
         timeout: 60000,
       });
+
       await delay(5000);
 
       const isLocked = await page.evaluate(() => {
-        const text = document.body.innerText.toLowerCase();
-
-        const isSalesNavLocked =
-          text.includes("you can't view this profile") ||
-          text.includes("upgrade to unlock profiles") ||
-          text.includes("profile unavailable") ||
-          text.includes("this profile is not available") ||
-          text.includes("you do not have access to this profile") ||
-          text.includes("content unavailable");
-
-        const hasNoNameOrTitle =
-          !document.querySelector('[data-anonymize="person-name"]') &&
-          !document.querySelector('[data-anonymize="headline"]');
-
-        return isSalesNavLocked || hasNoNameOrTitle;
-      });
-
-      const scrapedData = await page.evaluate(() => {
-        const name =
-          document
-            .querySelector('[data-anonymize="person-name"]')
-            ?.innerText.trim() || "";
-
-        const title =
-          document
-            .querySelector('[data-anonymize="headline"]')
-            ?.innerText.trim() || "";
-
-        let company = "";
-
-        // Try to get present company from the "current company" section
-        const currentCompanyElement = document.querySelector(
-          'div[data-test-lead-info-section="currentCompany"] a'
+        const bodyText = document.body.innerText.toLowerCase();
+        return (
+          bodyText.includes("you can't view this profile") ||
+          bodyText.includes("upgrade to unlock profiles") ||
+          bodyText.includes("profile unavailable") ||
+          bodyText.includes("this profile is not available") ||
+          bodyText.includes("you do not have access to this profile") ||
+          bodyText.includes("content unavailable")
         );
-        if (currentCompanyElement) {
-          company = currentCompanyElement.innerText.trim();
-        } else if (title.includes(" at ")) {
-          // Fallback: extract company from the headline
-          company = title.split(" at ")[1].trim();
-        }
-
-        return { name, title, company };
       });
 
-      if (isLocked || (!scrapedData.name && !scrapedData.title)) {
-        onLog(`Row ${i}: locked`);
+      if (isLocked) {
+        onLog(`Row ${i}: profile appears locked`);
         row.getCell(1).value = "locked";
         row.commit();
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
         await delay(getRandomDelay());
         continue;
       }
 
-      let matched = true;
+      // Extract current company
+      const scrapedCompany = await page.evaluate(() => {
+        const currentRoleSection = document.querySelector(
+          '[data-sn-view-name="lead-current-role"]'
+        );
 
-      for (const colName of columnsToVerify) {
-        const colNameLower = colName.trim().toLowerCase().replace(/\s+/g, " ");
-        const headerCellIndex = headerMap[colNameLower];
+        if (!currentRoleSection) return "";
 
-        if (!headerCellIndex) {
-          onLog(`Row ${i}: Column "${colName}" not found`);
-          matched = false;
-          continue;
-        }
+        const companyLink = currentRoleSection.querySelector(
+          'a[data-anonymize="company-name"]'
+        );
+        return companyLink?.innerText?.trim()?.toLowerCase() || "";
+      });
 
-        const sheetValue = row
-          .getCell(headerCellIndex)
-          .text.trim()
-          .toLowerCase();
-
-        let linkedInValue = "";
-        if (colNameLower === "company name") {
-          linkedInValue = scrapedData.company.toLowerCase();
-        } else if (colNameLower === "full name") {
-          linkedInValue = scrapedData.name.toLowerCase();
-        } else if (colNameLower === "job title") {
-          linkedInValue = scrapedData.title.toLowerCase();
-        } else {
-          onLog(`Row ${i}: No scraped field for column "${colName}"`);
-          matched = false;
-          continue;
-        }
-
-        if (!linkedInValue.includes(sheetValue)) {
-          matched = false;
-        }
+      if (!scrapedCompany) {
+        onLog(`Row ${i}: no company info found on profile`);
+        row.getCell(1).value = "no company info";
+        row.commit();
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        await delay(getRandomDelay());
+        continue;
       }
 
-      row.getCell(1).value = matched ? "good" : "bad";
+      if (scrapedCompany.includes(companyFromExcel)) {
+        row.getCell(1).value = "good";
+        onLog(
+          `Row ${i}: Match -> Excel: "${companyFromExcel}", SalesNav: "${scrapedCompany}"`
+        );
+      } else {
+        row.getCell(1).value = "bad";
+        onLog(
+          `Row ${i}: Mismatch -> Excel: "${companyFromExcel}", SalesNav: "${scrapedCompany}"`
+        );
+      }
+
       row.commit();
-      onLog(`Row ${i}: ${matched ? "good" : "bad"}`);
+      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
 
       await delay(getRandomDelay());
     } catch (err) {
       onLog(`Row ${i}: error - ${err.message}`);
       row.getCell(1).value = "error";
       row.commit();
+      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
       await delay(getRandomDelay());
     }
   }

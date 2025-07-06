@@ -3,6 +3,7 @@ import scrapeData from "../utils/scraper.js";
 
 let filePath = "";
 let sheetsData = {};
+let scrapingStopped = false; // global stop flag
 
 export const uploadFile = async (req, res, next) => {
   try {
@@ -29,7 +30,7 @@ export const processFile = async (req, res, next) => {
     const { sheetName } = req.body;
 
     const selectedSheet = sheetsData[sheetName];
-    const columnNames = selectedSheet.getRow(1).values.slice(1); // skip first empty cell
+    const columnNames = selectedSheet.getRow(1).values.slice(1);
 
     res.status(200).json({ columnNames });
   } catch (err) {
@@ -39,27 +40,58 @@ export const processFile = async (req, res, next) => {
 
 export const scrapeProfiles = async (req, res, next) => {
   try {
-    const { sheetName, columnsToVerify, urlColumn, goLogin } = req.body;
+    const {
+      sheetName,
+      companyColumn,
+      urlColumn,
+      goLoginToken,
+      goLoginProfileId,
+    } = req.body;
+
+    if (
+      !sheetName ||
+      !companyColumn ||
+      !urlColumn ||
+      !goLoginToken ||
+      !goLoginProfileId
+    ) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
 
     const worksheet = workbook.getWorksheet(sheetName);
 
-    // 🔥 You forgot this line
     const headerRow = worksheet.getRow(1);
-
-    const urlColumnIndex = headerRow.values.findIndex(
-      (val) =>
-        typeof val === "string" &&
-        val.trim().toLowerCase() === urlColumn.trim().toLowerCase()
+    const headerValuesNormalized = headerRow.values.map((val) =>
+      typeof val === "string" ? val.trim().toLowerCase() : val
     );
 
-    if (urlColumnIndex === -1) {
+    const urlColumnIndex = headerValuesNormalized.findIndex(
+      (val) => val === urlColumn.trim().toLowerCase()
+    );
+    const companyColumnIndex = headerValuesNormalized.findIndex(
+      (val) => val === companyColumn.trim().toLowerCase()
+    );
+
+    if (urlColumnIndex === -1 || urlColumnIndex === 0) {
       return res.status(400).json({ message: "URL column not found." });
     }
+    if (companyColumnIndex === -1 || companyColumnIndex === 0) {
+      return res.status(400).json({ message: "Company column not found." });
+    }
 
-    await scrapeData(worksheet, columnsToVerify, urlColumnIndex, goLogin);
+    await scrapeData(
+      worksheet,
+      companyColumnIndex,
+      urlColumnIndex,
+      goLogin,
+      () => {},
+      { stopped: false, filePath } // pass filePath for saving
+    );
 
     await workbook.xlsx.writeFile(filePath);
 
@@ -69,21 +101,20 @@ export const scrapeProfiles = async (req, res, next) => {
   }
 };
 
-// SSE streaming scrape endpoint
+// Streaming scrape with real-time events and stop support
 export const scrapeProfilesStream = async (req, res, next) => {
   try {
-    const sheetName = req.query.sheetName;
-    const columnsToVerify = req.query.columnsToVerify
-      ? req.query.columnsToVerify.split(",")
-      : [];
-    const urlColumn = req.query.urlColumn;
-    const goLoginToken = req.query.goLoginToken;
-    const goLoginProfileId = req.query.goLoginProfileId;
+    const {
+      sheetName,
+      companyColumn,
+      urlColumn,
+      goLoginToken,
+      goLoginProfileId,
+    } = req.query;
 
     if (
       !sheetName ||
-      !Array.isArray(columnsToVerify) ||
-      columnsToVerify.length === 0 ||
+      !companyColumn ||
       !urlColumn ||
       !goLoginToken ||
       !goLoginProfileId
@@ -91,7 +122,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // ... rest remains the same, just build goLogin object from token and profileId
+    scrapingStopped = false; // reset stop flag on new scrape
+
     const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
 
     const workbook = new ExcelJS.Workbook();
@@ -100,15 +132,24 @@ export const scrapeProfilesStream = async (req, res, next) => {
     const worksheet = workbook.getWorksheet(sheetName);
 
     const headerRow = worksheet.getRow(1);
-    const urlColumnIndex = headerRow.values.findIndex(
-      (val) => val === urlColumn
+    const headerValuesNormalized = headerRow.values.map((val) =>
+      typeof val === "string" ? val.trim().toLowerCase() : val
     );
 
-    if (urlColumnIndex === -1) {
+    const urlColumnIndex = headerValuesNormalized.findIndex(
+      (val) => val === urlColumn.trim().toLowerCase()
+    );
+    const companyColumnIndex = headerValuesNormalized.findIndex(
+      (val) => val === companyColumn.trim().toLowerCase()
+    );
+
+    if (urlColumnIndex === -1 || urlColumnIndex === 0) {
       return res.status(400).json({ message: "URL column not found." });
     }
+    if (companyColumnIndex === -1 || companyColumnIndex === 0) {
+      return res.status(400).json({ message: "Company column not found." });
+    }
 
-    // Set SSE headers
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
@@ -120,20 +161,40 @@ export const scrapeProfilesStream = async (req, res, next) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
 
-    await scrapeData(
-      worksheet,
-      columnsToVerify,
-      urlColumnIndex,
-      goLogin,
-      sendEvent
-    );
+    try {
+      await scrapeData(
+        worksheet,
+        companyColumnIndex,
+        urlColumnIndex,
+        goLogin,
+        sendEvent,
+        {
+          get stopped() {
+            return scrapingStopped;
+          },
+          filePath, // pass for saving during scraping
+        }
+      );
 
-    await workbook.xlsx.writeFile(filePath);
+      await workbook.xlsx.writeFile(filePath);
 
-    sendEvent({ done: true, filePath });
+      sendEvent({ done: true, filePath });
 
-    res.end();
+      res.end();
+    } catch (scrapeErr) {
+      sendEvent({ error: true, message: scrapeErr.message || "Scrape failed" });
+      res.end();
+    }
   } catch (err) {
-    next(err);
+    if (!res.headersSent) {
+      return next(err);
+    }
+    res.end();
   }
+};
+
+// Stop scraping endpoint sets flag
+export const stopScraping = (req, res) => {
+  scrapingStopped = true;
+  res.status(200).json({ message: "Scraping stopped" });
 };
