@@ -40,6 +40,7 @@ export const processFile = async (req, res, next) => {
   }
 };
 
+// Legacy scrapeProfiles (if you still want to keep it)
 export const scrapeProfiles = async (req, res, next) => {
   try {
     const {
@@ -88,8 +89,11 @@ export const scrapeProfiles = async (req, res, next) => {
 
     await scrapeData(
       worksheet,
-      companyColumnIndex,
-      urlColumnIndex,
+      {
+        companyColumnIndex,
+        urlColumnIndex,
+        minConnectionCount: 0, // no min connections in legacy
+      },
       goLogin,
       () => {},
       { stopped: false, filePath } // pass filePath for saving
@@ -103,7 +107,7 @@ export const scrapeProfiles = async (req, res, next) => {
   }
 };
 
-// Streaming scrape with real-time events and stop support
+// Streaming scrape with real-time events and stop support + min connections param
 export const scrapeProfilesStream = async (req, res, next) => {
   try {
     const {
@@ -114,6 +118,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
       urlColumn,
       goLoginToken,
       goLoginProfileId,
+      minimumConnections, // ✅ Correct param name
     } = req.query;
 
     if (
@@ -162,18 +167,22 @@ export const scrapeProfilesStream = async (req, res, next) => {
         .json({ message: "One or more columns not found." });
     }
 
+    // ✅ Parse minimumConnections to number properly
+    let minConnectionCountNum = parseInt(minimumConnections, 10);
+    if (isNaN(minConnectionCountNum)) minConnectionCountNum = 0;
+
+    console.log("Backend received minConnectionCount:", minConnectionCountNum);
+
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "X-Accel-Buffering": "no", // 🔥 Important for proxies
+      "X-Accel-Buffering": "no",
     });
     res.flushHeaders();
 
     const sendEvent = (data) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      // ❌ REMOVE: res.flush();
-      // Node automatically sends data with res.write for SSE
     };
 
     try {
@@ -184,6 +193,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
           jobTitleColumnIndex,
           companyColumnIndex,
           urlColumnIndex,
+          minConnectionCount: minConnectionCountNum, // ✅ Send as number
         },
         goLogin,
         sendEvent,

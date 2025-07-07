@@ -11,6 +11,7 @@ const scrapeData = async (
     jobTitleColumnIndex,
     companyColumnIndex,
     urlColumnIndex,
+    minConnectionCount = 0,
   },
   goLoginCredentials,
   onLog = () => {},
@@ -25,6 +26,7 @@ const scrapeData = async (
   const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
   const page = await browser.newPage();
 
+  // Insert "Note" column at position 1 (A)
   worksheet.spliceColumns(1, 0, ["Note"]);
   worksheet.getRow(1).commit();
 
@@ -66,6 +68,7 @@ const scrapeData = async (
       });
       await delay(5000);
 
+      // Check if profile is locked
       const isLocked = await page.evaluate(() => {
         const nameHeader = document.querySelector(
           'h1[data-anonymize="person-name"]'
@@ -89,6 +92,37 @@ const scrapeData = async (
         continue;
       }
 
+      // Extract connection count text from the correct element
+      const connectionCountText = await page.evaluate(() => {
+        const divs = Array.from(
+          document.querySelectorAll("div.ZSOyOxRwAUDbEAuwsWIlFlRlCKvaQRQ")
+        );
+        for (let div of divs) {
+          if (div.innerText.toLowerCase().includes("connections")) {
+            return div.innerText.trim();
+          }
+        }
+        return "";
+      });
+
+      const connMatch = connectionCountText.match(/(\d+)/);
+      const connectionCount = connMatch ? parseInt(connMatch[1], 10) : 0;
+
+      onLog({ message: `Row ${i}: Connection count: ${connectionCount}` });
+
+      // Minimum connection count check - skip if less than minimum
+      if (connectionCount < minConnectionCount) {
+        onLog({
+          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [Insufficient Connections] | Connections: ${connectionCount}`,
+        });
+        row.getCell(1).value = "bad";
+        row.commit();
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        await delay(getRandomDelay());
+        continue;
+      }
+
+      // If connection count ok, check profile details
       const profileData = await page.evaluate(() => {
         const fullNameEl = document.querySelector(
           'h1[data-anonymize="person-name"]'
@@ -115,12 +149,12 @@ const scrapeData = async (
       if (matches.fullName && matches.jobTitle && matches.company) {
         row.getCell(1).value = "good";
         onLog({
-          message: `Row ${i}: Match | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}]`,
+          message: `Row ${i}: Match | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}] | Connections: ${connectionCount}`,
         });
       } else {
         row.getCell(1).value = "bad";
         onLog({
-          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}]`,
+          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}] | Connections: ${connectionCount}`,
         });
       }
 
