@@ -26,7 +26,6 @@ const scrapeData = async (
   const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
   const page = await browser.newPage();
 
-  // Insert "Note" column at position 1 (A)
   worksheet.spliceColumns(1, 0, ["Note"]);
   worksheet.getRow(1).commit();
 
@@ -40,22 +39,26 @@ const scrapeData = async (
 
     try {
       const profileUrl = row.getCell(urlColumnIndex + 1).text.trim();
-
-      const fullNameFromExcel = row
+      const fullNameExcel = row
         .getCell(fullNameColumnIndex + 1)
         .text.trim()
         .toLowerCase();
-      const jobTitleFromExcel = row
+      const jobTitleExcel = row
         .getCell(jobTitleColumnIndex + 1)
         .text.trim()
         .toLowerCase();
-      const companyFromExcel = row
+      const companyExcel = row
         .getCell(companyColumnIndex + 1)
         .text.trim()
         .toLowerCase();
 
       if (!profileUrl.startsWith("http")) {
-        onLog({ message: `Row ${i}: Invalid URL` });
+        onLog({
+          message: JSON.stringify({
+            row: i,
+            status: "Invalid URL",
+          }),
+        });
         row.getCell(1).value = "error";
         row.commit();
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
@@ -68,23 +71,25 @@ const scrapeData = async (
       });
       await delay(5000);
 
-      // Check if profile is locked
       const isLocked = await page.evaluate(() => {
         const nameHeader = document.querySelector(
           'h1[data-anonymize="person-name"]'
         );
-        const unlockButton = Array.from(
-          document.querySelectorAll("button")
-        ).find(
+        const unlockBtn = [...document.querySelectorAll("button")].find(
           (btn) => btn.innerText.trim().toLowerCase() === "unlock full profile"
         );
         return (
-          nameHeader?.innerText.trim() === "LinkedIn Member" || !!unlockButton
+          nameHeader?.innerText.trim() === "LinkedIn Member" || !!unlockBtn
         );
       });
 
       if (isLocked) {
-        onLog({ message: `Row ${i}: Locked profile` });
+        onLog({
+          message: JSON.stringify({
+            row: i,
+            status: "Locked",
+          }),
+        });
         row.getCell(1).value = "locked";
         row.commit();
         await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
@@ -92,77 +97,87 @@ const scrapeData = async (
         continue;
       }
 
-      // Extract connection count text from the correct element
-      const connectionCountText = await page.evaluate(() => {
-        const divs = Array.from(
-          document.querySelectorAll("div.ZSOyOxRwAUDbEAuwsWIlFlRlCKvaQRQ")
-        );
-        for (let div of divs) {
-          if (div.innerText.toLowerCase().includes("connections")) {
-            return div.innerText.trim();
-          }
-        }
-        return "";
-      });
-
-      const connMatch = connectionCountText.match(/(\d+)/);
-      const connectionCount = connMatch ? parseInt(connMatch[1], 10) : 0;
-
-      onLog({ message: `Row ${i}: Connection count: ${connectionCount}` });
-
-      // Minimum connection count check - skip if less than minimum
-      if (connectionCount < minConnectionCount) {
-        onLog({
-          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [Insufficient Connections] | Connections: ${connectionCount}`,
+      const { fullName, jobTitle, company, connectionCount } =
+        await page.evaluate(() => {
+          const name =
+            document
+              .querySelector('h1[data-anonymize="person-name"]')
+              ?.innerText?.trim()
+              .toLowerCase() || "";
+          const title =
+            document
+              .querySelector('span[data-anonymize="job-title"]')
+              ?.innerText?.trim()
+              .toLowerCase() || "";
+          const comp =
+            document
+              .querySelector(
+                '[data-sn-view-name="lead-current-role"] a[data-anonymize="company-name"]'
+              )
+              ?.innerText?.trim()
+              .toLowerCase() || "";
+          const connections =
+            [
+              ...document.querySelectorAll(
+                "div.ZSOyOxRwAUDbEAuwsWIlFlRlCKvaQRQ"
+              ),
+            ]
+              .map((d) => d.innerText.trim())
+              .find((txt) => txt.toLowerCase().includes("connections")) || "";
+          const connMatch = connections.match(/(\d+)/);
+          return {
+            fullName: name,
+            jobTitle: title,
+            company: comp,
+            connectionCount: connMatch ? parseInt(connMatch[1], 10) : 0,
+          };
         });
-        row.getCell(1).value = "bad";
-        row.commit();
-        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
-        await delay(getRandomDelay());
-        continue;
-      }
-
-      // If connection count ok, check profile details
-      const profileData = await page.evaluate(() => {
-        const fullNameEl = document.querySelector(
-          'h1[data-anonymize="person-name"]'
-        );
-        const jobTitleEl = document.querySelector(
-          'span[data-anonymize="job-title"]'
-        );
-        const companyEl = document.querySelector(
-          '[data-sn-view-name="lead-current-role"] a[data-anonymize="company-name"]'
-        );
-        return {
-          fullName: fullNameEl?.innerText?.trim()?.toLowerCase() || "",
-          jobTitle: jobTitleEl?.innerText?.trim()?.toLowerCase() || "",
-          company: companyEl?.innerText?.trim()?.toLowerCase() || "",
-        };
-      });
 
       const matches = {
-        fullName: profileData.fullName === fullNameFromExcel,
-        jobTitle: profileData.jobTitle === jobTitleFromExcel,
-        company: profileData.company === companyFromExcel,
+        fullName: fullName === fullNameExcel,
+        jobTitle: jobTitle === jobTitleExcel,
+        company: company === companyExcel,
+        connectionCount: connectionCount >= minConnectionCount,
       };
 
-      if (matches.fullName && matches.jobTitle && matches.company) {
-        row.getCell(1).value = "good";
-        onLog({
-          message: `Row ${i}: Match | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}] | Connections: ${connectionCount}`,
-        });
-      } else {
-        row.getCell(1).value = "bad";
-        onLog({
-          message: `Row ${i}: Mismatch | Excel: [${fullNameFromExcel}, ${jobTitleFromExcel}, ${companyFromExcel}] | SalesNav: [${profileData.fullName}, ${profileData.jobTitle}, ${profileData.company}] | Connections: ${connectionCount}`,
-        });
-      }
+      const overallMatch =
+        matches.fullName &&
+        matches.jobTitle &&
+        matches.company &&
+        matches.connectionCount;
+      row.getCell(1).value = overallMatch ? "good" : "bad";
+
+      onLog({
+        message: JSON.stringify({
+          row: i,
+          status: overallMatch ? "Match" : "Mismatch",
+          matches,
+          excel: {
+            fullName: fullNameExcel,
+            jobTitle: jobTitleExcel,
+            company: companyExcel,
+            connectionCount: minConnectionCount,
+          },
+          salesnav: {
+            fullName,
+            jobTitle,
+            company,
+            connectionCount,
+          },
+        }),
+      });
 
       row.commit();
       await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
       await delay(getRandomDelay());
     } catch (err) {
-      onLog({ message: `Row ${i}: Error - ${err.message}` });
+      onLog({
+        message: JSON.stringify({
+          row: i,
+          status: "Error",
+          error: err.message,
+        }),
+      });
       row.getCell(1).value = "error";
       row.commit();
       await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
