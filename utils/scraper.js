@@ -104,11 +104,13 @@ const scrapeData = async (
               .querySelector('h1[data-anonymize="person-name"]')
               ?.innerText?.trim()
               .toLowerCase() || "";
+
           const title =
             document
               .querySelector('span[data-anonymize="job-title"]')
               ?.innerText?.trim()
               .toLowerCase() || "";
+
           const comp =
             document
               .querySelector(
@@ -116,20 +118,45 @@ const scrapeData = async (
               )
               ?.innerText?.trim()
               .toLowerCase() || "";
-          const connections =
-            [
-              ...document.querySelectorAll(
-                "div.ZSOyOxRwAUDbEAuwsWIlFlRlCKvaQRQ"
-              ),
-            ]
-              .map((d) => d.innerText.trim())
-              .find((txt) => txt.toLowerCase().includes("connections")) || "";
-          const connMatch = connections.match(/(\d+)/);
+
+          const headerSection = document.querySelector(
+            "section._header_sqh8tm"
+          );
+          let connections = "";
+
+          if (headerSection) {
+            const allDivs = Array.from(headerSection.querySelectorAll("div"));
+            const bottomLevelDivs = allDivs.filter((div) => {
+              const text = div.innerText?.trim().toLowerCase() || "";
+              const includesConnections = text.includes("connections");
+
+              if (!includesConnections) return false;
+
+              // Check if any child <div> also contains "connections"
+              const hasChildDivWithConnections = Array.from(
+                div.querySelectorAll("div")
+              ).some((child) =>
+                child.innerText?.trim().toLowerCase().includes("connections")
+              );
+
+              return !hasChildDivWithConnections; // Only keep bottom-most divs
+            });
+
+            if (bottomLevelDivs.length > 0) {
+              connections = bottomLevelDivs[0].innerText.trim().toLowerCase();
+            }
+          }
+
+          const connMatch = connections.match(/\d[\d,+]*/);
+          const parsedConn = connMatch
+            ? parseInt(connMatch[0].replace(/[,+]/g, ""), 10)
+            : 0;
+
           return {
             fullName: name,
             jobTitle: title,
             company: comp,
-            connectionCount: connMatch ? parseInt(connMatch[1], 10) : 0,
+            connectionCount: parsedConn,
           };
         });
 
