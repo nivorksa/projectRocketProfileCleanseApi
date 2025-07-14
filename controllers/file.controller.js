@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import scrapeData from "../utils/scraper.js";
+import profileCleanse from "../utils/profileCleanse.js";
 import fs from "fs";
 import path from "path";
 
@@ -87,7 +87,7 @@ export const scrapeProfiles = async (req, res, next) => {
       return res.status(400).json({ message: "Company column not found." });
     }
 
-    await scrapeData(
+    await profileCleanse(
       worksheet,
       {
         companyColumnIndex,
@@ -186,7 +186,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
     };
 
     try {
-      await scrapeData(
+      await profileCleanse(
         worksheet,
         {
           fullNameColumnIndex,

@@ -1,10 +1,16 @@
-import { GoLogin } from "gologin";
 import puppeteer from "puppeteer-core";
+import { launchGoLoginBrowser } from "./gologin.js";
 
-const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+import extractFullName from "./scraper/extractFullName.js";
+import extractJobTitle from "./scraper/extractJobTitle.js";
+import extractCompany from "./scraper/extractCompany.js";
+import extractConnectionCount from "./scraper/extractConnectionCount.js";
+import isLockedProfile from "./scraper/isLockedProfile.js";
+
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 const getRandomDelay = () => Math.floor(Math.random() * 4000) + 3000;
 
-const scrapeData = async (
+const profileCleanse = async (
   worksheet,
   {
     fullNameColumnIndex,
@@ -13,19 +19,15 @@ const scrapeData = async (
     urlColumnIndex,
     minConnectionCount = 0,
   },
-  goLoginCredentials,
+  goLogin,
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
 ) => {
-  const { token, profileId } = goLoginCredentials;
-
-  const GL = new GoLogin({ token, profile_id: profileId });
-  const { status, wsUrl } = await GL.start();
-  if (status !== "success") throw new Error("GoLogin profile failed to start");
-
-  const browser = await puppeteer.connect({ browserWSEndpoint: wsUrl });
+  const browser = await launchGoLoginBrowser(goLogin);
   const page = await browser.newPage();
+  await page.setViewport({ width: 1366, height: 768 });
 
+  // Insert "Note" column as the first column
   worksheet.spliceColumns(1, 0, ["Note"]);
   worksheet.getRow(1).commit();
 
@@ -71,17 +73,7 @@ const scrapeData = async (
       });
       await delay(5000);
 
-      const isLocked = await page.evaluate(() => {
-        const nameHeader = document.querySelector(
-          'h1[data-anonymize="person-name"]'
-        );
-        const unlockBtn = [...document.querySelectorAll("button")].find(
-          (btn) => btn.innerText.trim().toLowerCase() === "unlock full profile"
-        );
-        return (
-          nameHeader?.innerText.trim() === "LinkedIn Member" || !!unlockBtn
-        );
-      });
+      const isLocked = await isLockedProfile(page);
 
       if (isLocked) {
         onLog({
@@ -97,68 +89,12 @@ const scrapeData = async (
         continue;
       }
 
-      const { fullName, jobTitle, company, connectionCount } =
-        await page.evaluate(() => {
-          const name =
-            document
-              .querySelector('h1[data-anonymize="person-name"]')
-              ?.innerText?.trim()
-              .toLowerCase() || "";
-
-          const title =
-            document
-              .querySelector('span[data-anonymize="job-title"]')
-              ?.innerText?.trim()
-              .toLowerCase() || "";
-
-          const comp =
-            document
-              .querySelector(
-                '[data-sn-view-name="lead-current-role"] a[data-anonymize="company-name"]'
-              )
-              ?.innerText?.trim()
-              .toLowerCase() || "";
-
-          const headerSection = document.querySelector(
-            "section._header_sqh8tm"
-          );
-          let connections = "";
-
-          if (headerSection) {
-            const allDivs = Array.from(headerSection.querySelectorAll("div"));
-            const bottomLevelDivs = allDivs.filter((div) => {
-              const text = div.innerText?.trim().toLowerCase() || "";
-              const includesConnections = text.includes("connections");
-
-              if (!includesConnections) return false;
-
-              // Check if any child <div> also contains "connections"
-              const hasChildDivWithConnections = Array.from(
-                div.querySelectorAll("div")
-              ).some((child) =>
-                child.innerText?.trim().toLowerCase().includes("connections")
-              );
-
-              return !hasChildDivWithConnections; // Only keep bottom-most divs
-            });
-
-            if (bottomLevelDivs.length > 0) {
-              connections = bottomLevelDivs[0].innerText.trim().toLowerCase();
-            }
-          }
-
-          const connMatch = connections.match(/\d[\d,+]*/);
-          const parsedConn = connMatch
-            ? parseInt(connMatch[0].replace(/[,+]/g, ""), 10)
-            : 0;
-
-          return {
-            fullName: name,
-            jobTitle: title,
-            company: comp,
-            connectionCount: parsedConn,
-          };
-        });
+      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
+        extractFullName(page),
+        extractJobTitle(page),
+        extractCompany(page),
+        extractConnectionCount(page),
+      ]);
 
       const matches = {
         fullName: fullName === fullNameExcel,
@@ -172,6 +108,7 @@ const scrapeData = async (
         matches.jobTitle &&
         matches.company &&
         matches.connectionCount;
+
       row.getCell(1).value = overallMatch ? "good" : "bad";
 
       onLog({
@@ -213,7 +150,6 @@ const scrapeData = async (
   }
 
   await browser.close();
-  await GL.stop();
 };
 
-export default scrapeData;
+export default profileCleanse;
