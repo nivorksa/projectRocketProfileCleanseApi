@@ -8,7 +8,7 @@ import extractConnectionCount from "./scraper/extractConnectionCount.js";
 import isLockedProfile from "./scraper/isLockedProfile.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-const getRandomDelay = () => Math.floor(Math.random() * 4000) + 3000;
+const getRandomDelay = () => Math.floor(Math.random() * 1000) + 1000;
 
 const profileCleanse = async (
   worksheet,
@@ -68,10 +68,15 @@ const profileCleanse = async (
       }
 
       await page.goto(profileUrl, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "networkidle2", // more reliable for LinkedIn
         timeout: 60000,
       });
-      await delay(5000);
+
+      await page.waitForSelector('h1[data-anonymize="person-name"]', {
+        timeout: 15000,
+      });
+
+      await delay(2000); // extra delay to ensure dynamic sections load
 
       const isLocked = await isLockedProfile(page);
 
