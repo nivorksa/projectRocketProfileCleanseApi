@@ -31,9 +31,12 @@ const profileCleanse = async (
   worksheet.spliceColumns(1, 0, ["Note"]);
   worksheet.getRow(1).commit();
 
+  let rowsSinceLastWrite = 0;
+
   for (let i = 2; i <= worksheet.rowCount; i++) {
     if (stopFlag.stopped) {
       onLog({ message: `Scraping stopped at row ${i}` });
+      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
       break;
     }
 
@@ -63,12 +66,16 @@ const profileCleanse = async (
         });
         row.getCell(1).value = "error";
         row.commit();
-        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite++;
+        if (rowsSinceLastWrite >= 10 || i === worksheet.rowCount) {
+          await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+          rowsSinceLastWrite = 0;
+        }
         continue;
       }
 
       await page.goto(profileUrl, {
-        waitUntil: "networkidle2", // more reliable for LinkedIn
+        waitUntil: "networkidle2",
         timeout: 60000,
       });
 
@@ -76,7 +83,7 @@ const profileCleanse = async (
         timeout: 15000,
       });
 
-      await delay(2000); // extra delay to ensure dynamic sections load
+      await delay(2000);
 
       const isLocked = await isLockedProfile(page);
 
@@ -89,7 +96,11 @@ const profileCleanse = async (
         });
         row.getCell(1).value = "locked";
         row.commit();
-        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite++;
+        if (rowsSinceLastWrite >= 10 || i === worksheet.rowCount) {
+          await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+          rowsSinceLastWrite = 0;
+        }
         await delay(getRandomDelay());
         continue;
       }
@@ -137,7 +148,11 @@ const profileCleanse = async (
       });
 
       row.commit();
-      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+      rowsSinceLastWrite++;
+      if (rowsSinceLastWrite >= 10 || i === worksheet.rowCount) {
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite = 0;
+      }
       await delay(getRandomDelay());
     } catch (err) {
       onLog({
@@ -149,7 +164,11 @@ const profileCleanse = async (
       });
       row.getCell(1).value = "error";
       row.commit();
-      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+      rowsSinceLastWrite++;
+      if (rowsSinceLastWrite >= 10 || i === worksheet.rowCount) {
+        await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite = 0;
+      }
       await delay(getRandomDelay());
     }
   }
