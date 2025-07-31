@@ -1,7 +1,7 @@
 import { GoLogin } from "gologin";
 import puppeteer from "puppeteer-core";
 
-export const launchGoLoginBrowser = async ({ token, profileId }) => {
+const launchGoLoginBrowser = async ({ token, profileId }) => {
   const GL = new GoLogin({
     token,
     profile_id: profileId,
@@ -20,3 +20,5 @@ export const launchGoLoginBrowser = async ({ token, profileId }) => {
 
   return browser;
 };
+
+export default launchGoLoginBrowser;

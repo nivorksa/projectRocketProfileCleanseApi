@@ -1,5 +1,4 @@
-import puppeteer from "puppeteer-core";
-import { launchGoLoginBrowser } from "./gologin.js";
+import launchGoLoginBrowser from "./goLogin.js";
 
 import extractFullName from "./scraper/extractFullName.js";
 import extractJobTitle from "./scraper/extractJobTitle.js";
