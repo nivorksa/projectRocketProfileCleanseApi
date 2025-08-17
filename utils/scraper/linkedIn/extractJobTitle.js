@@ -1,6 +1,11 @@
 const extractJobTitle = async (page) => {
+  // Wait for the job title element in the experience section
+  await page.waitForSelector(
+    'div.hoverable-link-text.t-bold > span[aria-hidden="true"]',
+    { timeout: 15000 }
+  );
+
   return await page.evaluate(() => {
-    // Find the first job title span inside the experience section
     const titleSpan = document.querySelector(
       'div.hoverable-link-text.t-bold > span[aria-hidden="true"]'
     );

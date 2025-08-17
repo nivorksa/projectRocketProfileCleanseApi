@@ -132,16 +132,25 @@ const profileCleanse = async (
         continue;
       }
 
-      await page.goto(profileUrl, {
-        waitUntil: "networkidle2",
-        timeout: 60000,
-      });
-
-      // Platform-specific initial wait (SalesNav has a stable selector; LinkedIn varies)
-      if (initialWaitSelector) {
+      // SalesNav: wait for stable selector
+      if (usingSalesNav && initialWaitSelector) {
+        await page.goto(profileUrl, {
+          waitUntil: "networkidle2",
+          timeout: 60000,
+        });
         await page.waitForSelector(initialWaitSelector, { timeout: 15000 });
+        await delay(2000);
       }
-      await delay(2000);
+
+      // LinkeIn
+      if (usingLinkedIn && !initialWaitSelector) {
+        // Navigate to profile
+        await page.goto(profileUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 60000,
+        });
+        await delay(3000);
+      }
 
       // LinkedIn: do NOT check locked. SalesNav: DO check locked.
       if (usingSalesNav) {

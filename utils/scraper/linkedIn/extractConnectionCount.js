@@ -1,7 +1,8 @@
 const extractConnectionCount = async (page) => {
+  // Wait for the <ul> elements to load (LinkedIn top card)
+  await page.waitForSelector("ul", { timeout: 15000 });
+
   return await page.evaluate(() => {
-    // Select the <ul> containing the connections info (using a stable class if possible)
-    // Here we just target the <ul> which contains a <li> with "connections" text
     const ulElements = Array.from(document.querySelectorAll("ul"));
 
     let connectionText = "";
