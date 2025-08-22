@@ -1,7 +1,7 @@
 import launchGoLoginBrowser from "./goLogin.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-const getRandomDelay = () => Math.floor(Math.random() * 1000) + 1000;
+const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
 
 /**
  * Dynamically load extractor set based on platform.
