@@ -1,7 +1,7 @@
 // Define API Base URL for axios requests (local or live)
 const apiBaseUrl =
   process.env.NODE_ENV === "production"
-    ? "https://projectrocketprofilecleanseapi.onrender.com/api/"
+    ? "http://34.47.153.148:8800/api/"
     : "http://localhost:8800/api/";
 
 // Define Socket URL for socket.io connections (local or live)
