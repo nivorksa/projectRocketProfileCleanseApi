@@ -125,8 +125,7 @@ export const scrapeProfiles = async (req, res, next) => {
 };
 
 /**
- * Streaming scrape with real-time events, stop support, min connections,
- * and NEW toggles for SalesNav / LinkedIn + URL columns per platform.
+ * Streaming scrape with real-time events, stop support, min connections
  */
 export const scrapeProfilesStream = async (req, res, next) => {
   try {
@@ -135,18 +134,10 @@ export const scrapeProfilesStream = async (req, res, next) => {
       fullNameColumn,
       jobTitleColumn,
       companyColumn,
-
-      // old single column is replaced by specific ones:
-      urlColumnSalesNav,
-      urlColumnLinkedIn,
-
-      // toggles (strings "true"/"false")
-      checkSalesNav,
-      checkLinkedIn,
-
+      urlColumn,
       goLoginToken,
       goLoginProfileId,
-      minimumConnections,
+      minimumConnections, // ✅ Correct param name
     } = req.query;
 
     if (
@@ -154,40 +145,15 @@ export const scrapeProfilesStream = async (req, res, next) => {
       !fullNameColumn ||
       !jobTitleColumn ||
       !companyColumn ||
+      !urlColumn ||
       !goLoginToken ||
       !goLoginProfileId
     ) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Parse toggles
-    const useSalesNav = String(checkSalesNav || "").toLowerCase() === "true";
-    const useLinkedIn = String(checkLinkedIn || "").toLowerCase() === "true";
-
-    if (!useSalesNav && !useLinkedIn) {
-      return res.status(400).json({
-        message: "Select at least one platform (SalesNav or LinkedIn).",
-      });
-    }
-
-    // If both are selected, we will default to SalesNav (avoid double-processing/overwrites).
-    let chosenPlatform = "salesnav";
-    if (useSalesNav) chosenPlatform = "salesnav";
-    else if (useLinkedIn) chosenPlatform = "linkedin";
-
-    // Validate URL column presence for the chosen platform
-    if (chosenPlatform === "salesnav" && !urlColumnSalesNav) {
-      return res
-        .status(400)
-        .json({ message: "SalesNav URL column is required." });
-    }
-    if (chosenPlatform === "linkedin" && !urlColumnLinkedIn) {
-      return res
-        .status(400)
-        .json({ message: "LinkedIn URL column is required." });
-    }
-
     scrapingStopped = false;
+
     const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
 
     const workbook = new ExcelJS.Workbook();
@@ -200,34 +166,31 @@ export const scrapeProfilesStream = async (req, res, next) => {
     );
 
     const getIndex = (name) =>
-      headers.findIndex((v) => v === String(name).trim().toLowerCase());
+      headers.findIndex((v) => v === name.trim().toLowerCase());
 
     const fullNameColumnIndex = getIndex(fullNameColumn);
     const jobTitleColumnIndex = getIndex(jobTitleColumn);
     const companyColumnIndex = getIndex(companyColumn);
+    const urlColumnIndex = getIndex(urlColumn);
 
     if (
-      [fullNameColumnIndex, jobTitleColumnIndex, companyColumnIndex].some(
-        (i) => i <= 0
-      )
+      [
+        fullNameColumnIndex,
+        jobTitleColumnIndex,
+        companyColumnIndex,
+        urlColumnIndex,
+      ].some((i) => i <= 0)
     ) {
       return res
         .status(400)
         .json({ message: "One or more columns not found." });
     }
 
-    const urlColumnIndex =
-      chosenPlatform === "salesnav"
-        ? getIndex(urlColumnSalesNav)
-        : getIndex(urlColumnLinkedIn);
-
-    if (urlColumnIndex <= 0) {
-      return res.status(400).json({ message: "URL column not found." });
-    }
-
-    // Parse min connections
-    let minConnectionCountNum = parseInt(String(minimumConnections || "0"), 10);
+    // ✅ Parse minimumConnections to number properly
+    let minConnectionCountNum = parseInt(minimumConnections, 10);
     if (isNaN(minConnectionCountNum)) minConnectionCountNum = 0;
+
+    console.log("Backend received minConnectionCount:", minConnectionCountNum);
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -235,18 +198,11 @@ export const scrapeProfilesStream = async (req, res, next) => {
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
-    res.flushHeaders?.();
+    res.flushHeaders();
 
     const sendEvent = (data) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`);
     };
-
-    // Inform if both were on but we defaulted.
-    if (useSalesNav && useLinkedIn) {
-      sendEvent({
-        message: "[Info] Both toggles ON; defaulting to SalesNav for this run.",
-      });
-    }
 
     try {
       await profileCleanse(
@@ -256,8 +212,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
           jobTitleColumnIndex,
           companyColumnIndex,
           urlColumnIndex,
-          minConnectionCount: minConnectionCountNum,
-          platform: chosenPlatform, // 'salesnav' | 'linkedin'
+          minConnectionCount: minConnectionCountNum, // ✅ Send as number
         },
         goLogin,
         sendEvent,
@@ -279,8 +234,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
 
       res.end();
     } catch (scrapeErr) {
-      const msg = scrapeErr?.message || "Scrape failed";
-      sendEvent({ error: true, message: msg });
+      sendEvent({ error: true, message: scrapeErr.message || "Scrape failed" });
       res.end();
     }
   } catch (err) {
