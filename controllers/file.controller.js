@@ -137,7 +137,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
       urlColumn,
       goLoginToken,
       goLoginProfileId,
-      minimumConnections, // ✅ Correct param name
+      minimumConnections,
     } = req.query;
 
     if (
@@ -153,7 +153,6 @@ export const scrapeProfilesStream = async (req, res, next) => {
     }
 
     scrapingStopped = false;
-
     const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
 
     const workbook = new ExcelJS.Workbook();
@@ -186,11 +185,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
         .json({ message: "One or more columns not found." });
     }
 
-    // ✅ Parse minimumConnections to number properly
     let minConnectionCountNum = parseInt(minimumConnections, 10);
     if (isNaN(minConnectionCountNum)) minConnectionCountNum = 0;
-
-    console.log("Backend received minConnectionCount:", minConnectionCountNum);
 
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -205,6 +201,14 @@ export const scrapeProfilesStream = async (req, res, next) => {
     };
 
     try {
+      // ✅ profileCleanse writes a new _cleanse file and updates stopFlag.filePath
+      const stopFlag = {
+        get stopped() {
+          return scrapingStopped;
+        },
+        filePath, // initial uploaded file
+      };
+
       await profileCleanse(
         worksheet,
         {
@@ -212,24 +216,25 @@ export const scrapeProfilesStream = async (req, res, next) => {
           jobTitleColumnIndex,
           companyColumnIndex,
           urlColumnIndex,
-          minConnectionCount: minConnectionCountNum, // ✅ Send as number
+          minConnectionCount: minConnectionCountNum,
         },
         goLogin,
         sendEvent,
-        {
-          get stopped() {
-            return scrapingStopped;
-          },
-          filePath,
-        }
+        stopFlag
       );
 
-      await workbook.xlsx.writeFile(filePath);
+      // final _cleanse file path
+      const ext = path.extname(filePath);
+      const base = path.basename(filePath, ext);
+      const cleanseFilePath = path.join(
+        path.dirname(filePath),
+        `${base}_cleanse${ext}`
+      );
 
       if (scrapingStopped) {
-        sendEvent({ stopped: true, filePath });
+        sendEvent({ stopped: true, filePath: cleanseFilePath });
       } else {
-        sendEvent({ done: true, filePath });
+        sendEvent({ done: true, filePath: cleanseFilePath });
       }
 
       res.end();
@@ -250,18 +255,14 @@ export const stopScraping = (req, res) => {
 };
 
 export const downloadFile = (req, res) => {
-  const { path: fileToDownload } = req.query;
-
-  if (!fileToDownload) {
+  const fileToDownload = req.query.path;
+  if (!fileToDownload)
     return res.status(400).json({ message: "File path is required" });
-  }
 
-  const absolutePath = path.resolve(fileToDownload);
+  const absolutePath = path.resolve(decodeURIComponent(fileToDownload));
 
   fs.access(absolutePath, fs.constants.F_OK, (err) => {
-    if (err) {
-      return res.status(404).json({ message: "File not found" });
-    }
+    if (err) return res.status(404).json({ message: "File not found" });
     res.download(absolutePath, (downloadErr) => {
       if (downloadErr) {
         console.error("Download error:", downloadErr);

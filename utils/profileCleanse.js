@@ -4,6 +4,7 @@ import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
 import extractCompany from "./scraper/salesNav/extractCompany.js";
 import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
 import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
+import createNewWorkbook from "./createNewWorkbook.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
@@ -21,23 +22,42 @@ const profileCleanse = async (
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
 ) => {
+  // ✅ Create a new workbook and file for cleansing
+  const { newWorkbook, newFilePath } = await createNewWorkbook(
+    worksheet,
+    stopFlag.filePath
+  );
+  stopFlag.filePath = newFilePath;
+  const newSheet = newWorkbook.getWorksheet(worksheet.name);
+
   const browser = await launchGoLoginBrowser(goLogin);
   const page = await browser.newPage();
+
+  // Disable unnecessary resource loading
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    const blockedTypes = ["image", "stylesheet", "font", "media", "websocket"];
+    if (blockedTypes.includes(req.resourceType())) req.abort();
+    else req.continue();
+  });
+
   await page.setViewport({ width: 1366, height: 768 });
 
-  worksheet.spliceColumns(1, 0, ["Note"]);
-  worksheet.getRow(1).commit();
+  // Add “Note” column
+  newSheet.spliceColumns(1, 0, ["Note"]);
+  newSheet.getRow(1).commit();
 
   let rowsSinceLastWrite = 0;
 
-  for (let i = 2; i <= worksheet.rowCount; i++) {
+  for (let i = 2; i <= newSheet.rowCount; i++) {
     if (stopFlag.stopped) {
       onLog({ message: `Scraping stopped at row ${i}` });
-      await worksheet.workbook.xlsx.writeFile(stopFlag.filePath);
+      await newWorkbook.xlsx.writeFile(stopFlag.filePath);
       break;
     }
 
-    const row = worksheet.getRow(i);
+    const row = newSheet.getRow(i);
+
     try {
       const profileUrl = row.getCell(urlColumnIndex + 1).text.trim();
       const fullNameExcel = row
@@ -61,13 +81,17 @@ const profileCleanse = async (
       }
 
       await page.goto(profileUrl, {
-        waitUntil: "networkidle2",
-        timeout: 60000,
+        waitUntil: "domcontentloaded",
+        timeout: 45000,
       });
-      await page.waitForSelector('h1[data-anonymize="person-name"]', {
-        timeout: 15000,
-      });
-      await delay(2000);
+
+      try {
+        await page.waitForSelector('h1[data-anonymize="person-name"]', {
+          timeout: 10000,
+        });
+      } catch {}
+
+      await delay(1000);
 
       const locked = await isLockedProfile(page);
       if (locked) {
@@ -76,52 +100,60 @@ const profileCleanse = async (
         });
         row.getCell(1).value = "locked";
         row.commit();
-        continue;
+      } else {
+        const [fullName, jobTitle, company, connectionCount] =
+          await Promise.all([
+            extractFullName(page),
+            extractJobTitle(page),
+            extractCompany(page),
+            extractConnectionCount(page),
+          ]);
+
+        const matches = {
+          fullName: (fullName || "").toLowerCase() === fullNameExcel,
+          jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
+          company: (company || "").toLowerCase() === companyExcel,
+          connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
+        };
+
+        const overallMatch =
+          matches.fullName &&
+          matches.jobTitle &&
+          matches.company &&
+          matches.connectionCount;
+
+        row.getCell(1).value = overallMatch ? "good" : "bad";
+
+        onLog({
+          message: JSON.stringify({
+            row: i,
+            status: overallMatch ? "Match" : "Mismatch",
+            matches,
+            excel: {
+              fullName: fullNameExcel,
+              jobTitle: jobTitleExcel,
+              company: companyExcel,
+              connectionCount: minConnectionCount,
+            },
+            salesnav: {
+              fullName: (fullName || "").toLowerCase(),
+              jobTitle: (jobTitle || "").toLowerCase(),
+              company: (company || "").toLowerCase(),
+              connectionCount: Number(connectionCount) || 0,
+            },
+          }),
+        });
+
+        row.commit();
       }
 
-      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
-        extractFullName(page),
-        extractJobTitle(page),
-        extractCompany(page),
-        extractConnectionCount(page),
-      ]);
+      rowsSinceLastWrite++;
 
-      const matches = {
-        fullName: (fullName || "").toLowerCase() === fullNameExcel,
-        jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
-        company: (company || "").toLowerCase() === companyExcel,
-        connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
-      };
+      if (rowsSinceLastWrite >= 10) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite = 0;
+      }
 
-      const overallMatch =
-        matches.fullName &&
-        matches.jobTitle &&
-        matches.company &&
-        matches.connectionCount;
-
-      row.getCell(1).value = overallMatch ? "good" : "bad";
-
-      onLog({
-        message: JSON.stringify({
-          row: i,
-          status: overallMatch ? "Match" : "Mismatch",
-          matches,
-          excel: {
-            fullName: fullNameExcel,
-            jobTitle: jobTitleExcel,
-            company: companyExcel,
-            connectionCount: minConnectionCount,
-          },
-          salesnav: {
-            fullName: (fullName || "").toLowerCase(),
-            jobTitle: (jobTitle || "").toLowerCase(),
-            company: (company || "").toLowerCase(),
-            connectionCount: Number(connectionCount) || 0,
-          },
-        }),
-      });
-
-      row.commit();
       await delay(getRandomDelay());
     } catch (err) {
       onLog({
@@ -135,6 +167,10 @@ const profileCleanse = async (
       row.commit();
       await delay(getRandomDelay());
     }
+  }
+
+  if (rowsSinceLastWrite > 0) {
+    await newWorkbook.xlsx.writeFile(stopFlag.filePath);
   }
 
   await browser.close();
