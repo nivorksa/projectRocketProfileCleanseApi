@@ -3,6 +3,8 @@ import extractFullName from "./scraper/salesNav/extractFullName.js";
 import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
 import extractCompany from "./scraper/salesNav/extractCompany.js";
 import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
+import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
+import extractPageContent from "./scraper/salesNav/extractPageContent.js";
 import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
 import createNewWorkbook from "./createNewWorkbook.js";
 
@@ -17,12 +19,14 @@ const profileCleanse = async (
     companyColumnIndex,
     urlColumnIndex,
     minConnectionCount = 0,
+    keywordSearchEnabled = false,
+    keywords = [],
   },
   goLogin,
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
 ) => {
-  // ✅ Create a new workbook and file for cleansing
+  // Create a new workbook for cleansing
   const { newWorkbook, newFilePath } = await createNewWorkbook(
     worksheet,
     stopFlag.filePath
@@ -33,7 +37,7 @@ const profileCleanse = async (
   const browser = await launchGoLoginBrowser(goLogin);
   const page = await browser.newPage();
 
-  // Disable unnecessary resource loading
+  // Disable unnecessary resources
   await page.setRequestInterception(true);
   page.on("request", (req) => {
     const blockedTypes = ["image", "stylesheet", "font", "media", "websocket"];
@@ -43,7 +47,7 @@ const profileCleanse = async (
 
   await page.setViewport({ width: 1366, height: 768 });
 
-  // Add “Note” column
+  // Add "Note" column
   newSheet.spliceColumns(1, 0, ["Note"]);
   newSheet.getRow(1).commit();
 
@@ -100,55 +104,67 @@ const profileCleanse = async (
         });
         row.getCell(1).value = "locked";
         row.commit();
-      } else {
-        const [fullName, jobTitle, company, connectionCount] =
-          await Promise.all([
-            extractFullName(page),
-            extractJobTitle(page),
-            extractCompany(page),
-            extractConnectionCount(page),
-          ]);
-
-        const matches = {
-          fullName: (fullName || "").toLowerCase() === fullNameExcel,
-          jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
-          company: (company || "").toLowerCase() === companyExcel,
-          connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
-        };
-
-        const overallMatch =
-          matches.fullName &&
-          matches.jobTitle &&
-          matches.company &&
-          matches.connectionCount;
-
-        row.getCell(1).value = overallMatch ? "good" : "bad";
-
-        onLog({
-          message: JSON.stringify({
-            row: i,
-            status: overallMatch ? "Match" : "Mismatch",
-            matches,
-            excel: {
-              fullName: fullNameExcel,
-              jobTitle: jobTitleExcel,
-              company: companyExcel,
-              connectionCount: minConnectionCount,
-            },
-            salesnav: {
-              fullName: (fullName || "").toLowerCase(),
-              jobTitle: (jobTitle || "").toLowerCase(),
-              company: (company || "").toLowerCase(),
-              connectionCount: Number(connectionCount) || 0,
-            },
-          }),
-        });
-
-        row.commit();
+        continue;
       }
 
-      rowsSinceLastWrite++;
+      // Extract main fields
+      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
+        extractFullName(page),
+        extractJobTitle(page),
+        extractCompany(page),
+        extractConnectionCount(page),
+      ]);
 
+      const matches = {
+        fullName: (fullName || "").toLowerCase() === fullNameExcel,
+        jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
+        company: (company || "").toLowerCase() === companyExcel,
+        connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
+      };
+
+      const overallMatch =
+        matches.fullName &&
+        matches.jobTitle &&
+        matches.company &&
+        matches.connectionCount;
+
+      let noteValue = overallMatch ? "good" : "bad";
+
+      // Keyword search after expanding "See more" sections
+      if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
+        await expandSeeMore(page);
+        const pageContent = (await extractPageContent(page)).toLowerCase();
+        const matchedKeywords = keywords.filter((k) =>
+          pageContent.includes(k.toLowerCase())
+        );
+        if (matchedKeywords.length > 0) noteValue = matchedKeywords.join(", ");
+      }
+
+      row.getCell(1).value = noteValue;
+      row.commit();
+
+      onLog({
+        message: JSON.stringify({
+          row: i,
+          status: overallMatch ? "Match" : "Mismatch",
+          matches,
+          note: noteValue,
+          excel: {
+            fullName: fullNameExcel,
+            jobTitle: jobTitleExcel,
+            company: companyExcel,
+            connectionCount: minConnectionCount,
+          },
+          salesnav: {
+            fullName: (fullName || "").toLowerCase(),
+            jobTitle: (jobTitle || "").toLowerCase(),
+            company: (company || "").toLowerCase(),
+            connectionCount: Number(connectionCount) || 0,
+          },
+        }),
+      });
+
+      rowsSinceLastWrite++;
       if (rowsSinceLastWrite >= 10) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
         rowsSinceLastWrite = 0;

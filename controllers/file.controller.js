@@ -138,6 +138,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
       goLoginToken,
       goLoginProfileId,
       minimumConnections,
+      keywordSearchEnabled,
+      keywords,
     } = req.query;
 
     if (
@@ -217,6 +219,8 @@ export const scrapeProfilesStream = async (req, res, next) => {
           companyColumnIndex,
           urlColumnIndex,
           minConnectionCount: minConnectionCountNum,
+          keywordSearchEnabled: keywordSearchEnabled === "true",
+          keywords: keywords ? keywords.split(",") : [],
         },
         goLogin,
         sendEvent,
