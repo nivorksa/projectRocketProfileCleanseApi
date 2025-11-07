@@ -33,8 +33,9 @@ export const processFile = async (req, res, next) => {
 
     const selectedSheet = sheetsData[sheetName];
     const columnNames = selectedSheet.getRow(1).values.slice(1);
+    const totalRows = selectedSheet.rowCount - 1; // excluding header row
 
-    res.status(200).json({ columnNames });
+    res.status(200).json({ columnNames, totalRows });
   } catch (err) {
     next(err);
   }
