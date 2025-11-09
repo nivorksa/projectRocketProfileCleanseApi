@@ -1,8 +1,10 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import path from "path";
-import http from "http";
+// import path from "path";
+// import http from "http";
+import https from "https";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import fileRoutes from "./routes/file.route.js";
@@ -12,7 +14,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const httpServer = http.createServer(app);
+// const httpServer = http.createServer(app);
+
+// Load self-signed SSL certificate
+const httpsOptions = {
+  key: fs.readFileSync("/etc/ssl/projectRocket/projectRocket.key"),
+  cert: fs.readFileSync("/etc/ssl/projectRocket/projectRocket.crt"),
+};
 
 // CORS configuration
 app.use(
@@ -43,7 +51,13 @@ app.use((err, req, res, next) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 8800;
-httpServer.listen(PORT, () => {
-  console.log(`Backend server is running on port ${PORT}!`);
+// const PORT = process.env.PORT || 8800;
+// httpServer.listen(PORT, () => {
+//   console.log(`Backend server is running on port ${PORT}!`);
+// });
+
+// Start HTTPS server
+const PORT = process.env.PORT || 443;
+https.createServer(httpsOptions, app).listen(PORT, () => {
+  console.log(`Backend HTTPS server is running on port ${PORT}!`);
 });
