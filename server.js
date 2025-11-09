@@ -18,8 +18,8 @@ const app = express();
 
 // Load self-signed SSL certificate
 const httpsOptions = {
-  key: fs.readFileSync("/etc/ssl/projectRocket/projectRocket.key"),
-  cert: fs.readFileSync("/etc/ssl/projectRocket/projectRocket.crt"),
+  key: fs.readFileSync("ssl/projectRocket.key"),
+  cert: fs.readFileSync("ssl/projectRocket.crt"),
 };
 
 // CORS configuration
