@@ -21,7 +21,6 @@ const cleanupLeftoverClones = async (token, originalProfileId) => {
 
   const data = await response.json();
   for (const profile of data) {
-    // Delete only clones (not the original profile)
     if (profile.parentId === originalProfileId) {
       try {
         await fetch(`${API_BASE}/browser/v2/${profile.id}`, {
@@ -80,10 +79,8 @@ const launchGoLoginBrowser = async ({
   token,
   profileId: originalProfileId,
 }) => {
-  // Clean leftover clones first
   await cleanupLeftoverClones(token, originalProfileId);
 
-  // Clone the profile for this session
   const cloneId = await cloneProfile(token, originalProfileId);
 
   const GL = new GoLogin({ token, profile_id: cloneId });
@@ -93,7 +90,7 @@ const launchGoLoginBrowser = async ({
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       wsUrl = await GL.start({
-        timeout: 120_000,
+        timeout: 120000,
         show: true,
         windowSize: { width: 1920, height: 1080 },
         headless: false,
@@ -112,7 +109,6 @@ const launchGoLoginBrowser = async ({
     defaultViewport: null,
   });
 
-  // Wrap close to delete the clone afterwards
   const origClose = browser.close.bind(browser);
   browser.close = async () => {
     try {
