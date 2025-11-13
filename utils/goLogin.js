@@ -13,17 +13,20 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       wsUrl = await GL.start({
-        // Increase timeout here (milliseconds)
-        timeout: 120000, // 2 minutes instead of default
+        timeout: 120000, // 2 minutes
+        // Force visible, full-screen mode
+        show: true,
+        windowSize: { width: 1920, height: 1080 },
+        // You can also try disabling headless explicitly
+        headless: false,
       });
 
       if (!wsUrl || !wsUrl.wsUrl) throw new Error("No wsUrl returned");
-
       break; // success
     } catch (err) {
       if (attempt === maxRetries) throw err;
       console.log(`GoLogin start failed, retrying (${attempt})...`);
-      await new Promise((res) => setTimeout(res, 5000)); // wait 5 sec before retry
+      await new Promise((res) => setTimeout(res, 5000));
     }
   }
 
