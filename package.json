@@ -19,6 +19,7 @@
     "gologin": "^2.1.25",
     "json2csv": "^6.0.0-alpha.2",
     "multer": "^2.0.2",
+    "node-fetch": "^3.3.2",
     "puppeteer": "^24.11.0",
     "puppeteer-core": "^24.11.0"
   },
