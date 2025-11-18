@@ -12,7 +12,7 @@ import { verifyToken } from "../middleware/jwt.js";
 
 const router = express.Router();
 
-router.post("/upload", verifyToken, multer.single("file"), uploadFile);
+router.post("/upload", multer.single("file"), verifyToken, uploadFile);
 router.post("/process", verifyToken, processFile);
 router.post("/scrape", verifyToken, scrapeProfiles);
 router.post("/stop", stopScraping);

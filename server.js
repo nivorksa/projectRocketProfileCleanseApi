@@ -5,6 +5,7 @@ import path from "path";
 import http from "http";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
+import cookieParser from "cookie-parser";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 import authRoutes from "./routes/auth.route.js";
@@ -45,6 +46,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 const upload = multer({ dest: "uploads/" });
 
