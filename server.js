@@ -3,8 +3,11 @@ import cors from "cors";
 import multer from "multer";
 import path from "path";
 import http from "http";
+import mongoose from "mongoose";
+import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
+import authRoutes from "./routes/auth.route.js";
 import fileRoutes from "./routes/file.route.js";
 import { allowedOrigins } from "./utils/config.js";
 
@@ -13,6 +16,19 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const httpServer = http.createServer(app);
+
+dotenv.config();
+
+mongoose.set("strictQuery", true);
+
+const connect = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO);
+    console.log("Connected to mongoDB!");
+  } catch (error) {
+    console.error("MongoDB Connection Error:", error);
+  }
+};
 
 // CORS configuration
 app.use(
@@ -33,6 +49,7 @@ app.use(express.json());
 const upload = multer({ dest: "uploads/" });
 
 // API routes with upload middleware
+app.use("/api/auth", authRoutes);
 app.use("/api/file", fileRoutes);
 
 // Global error handler
@@ -45,5 +62,6 @@ app.use((err, req, res, next) => {
 // Start server
 const PORT = process.env.PORT || 8800;
 httpServer.listen(PORT, () => {
+  connect();
   console.log(`Backend server is running on port ${PORT}!`);
 });
