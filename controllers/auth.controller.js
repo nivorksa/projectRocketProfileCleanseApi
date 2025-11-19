@@ -51,6 +51,19 @@ export const login = async (req, res, next) => {
   }
 };
 
+export const getCurrentUser = async (req, res, next) => {
+  try {
+    const token = req.cookies.accessToken;
+    if (!token) return res.status(401).send("Not authenticated");
+
+    const decoded = jwt.verify(token, process.env.JWT_KEY);
+    const user = await User.findById(decoded.id).select("-password");
+    res.status(200).send(user);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const logout = async (req, res) => {
   try {
     const isProduction = process.env.NODE_ENV === "production";
