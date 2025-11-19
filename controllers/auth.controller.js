@@ -41,12 +41,8 @@ export const login = async (req, res, next) => {
       httpOnly: true,
       secure: isProduction,
       sameSite: isProduction ? "None" : "Lax",
-<<<<<<< HEAD
-      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), //30 days
-      path: "/",
-=======
       expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
->>>>>>> 9780213b09e183be1473a95d943f22d6005529c7
+      path: "/",
     };
 
     res.cookie("accessToken", token, cookieOptions).status(200).send(info);
@@ -64,11 +60,8 @@ export const logout = async (req, res) => {
         httpOnly: true,
         secure: isProduction,
         sameSite: isProduction ? "None" : "Lax",
-<<<<<<< HEAD
-        path: "/", // IMPORTANT
-        expires: new Date(0), // IMPORTANT for Edge
-=======
->>>>>>> 9780213b09e183be1473a95d943f22d6005529c7
+        path: "/",
+        expires: new Date(0),
       })
       .status(200)
       .send("User has been logged out!");
