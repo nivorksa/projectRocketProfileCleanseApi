@@ -76,9 +76,10 @@ export const login = async (req, res, next) => {
     // Set cookie options
     const cookieOptions = {
       httpOnly: true,
-      secure: isProduction, // Enable secure cookies only in production
-      sameSite: isProduction ? "None" : "Lax", // Use 'lax' for localhost
-      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      secure: isProduction,
+      sameSite: isProduction ? "None" : "Lax",
+      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), //30 days
+      path: "/",
     };
 
     // Set the cookie
@@ -95,8 +96,10 @@ export const logout = async (req, res) => {
     res
       .clearCookie("accessToken", {
         httpOnly: true,
-        secure: isProduction, // Use secure only in production
-        sameSite: isProduction ? "None" : "Lax", // Use 'None' in production, 'Lax' for localhost
+        secure: isProduction,
+        sameSite: isProduction ? "None" : "Lax",
+        path: "/", // IMPORTANT
+        expires: new Date(0), // IMPORTANT for Edge
       })
       .status(200)
       .send("User has been logged out!");
