@@ -15,12 +15,11 @@ export const verifyToken = (req, res, next) => {
     }
 
     // Ensure payload contains the correct fields
-    if (!payload || !payload.id || !payload.role) {
+    if (!payload || !payload.id) {
       return next(createError(403, "Token payload is missing required fields"));
     }
 
     req.userId = payload.id;
-    req.role = payload.role;
 
     next();
   });
