@@ -67,3 +67,6 @@ httpServer.listen(PORT, () => {
   connect();
   console.log(`Backend server is running on port ${PORT}!`);
 });
+
+// Log the DISPLAY environment variable
+console.log("DISPLAY environment variable:", process.env.DISPLAY);
