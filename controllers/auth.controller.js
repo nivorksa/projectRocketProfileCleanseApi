@@ -42,9 +42,23 @@ export const login = async (req, res, next) => {
       secure: isProduction,
       sameSite: isProduction ? "None" : "Lax",
       expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      path: "/",
     };
 
     res.cookie("accessToken", token, cookieOptions).status(200).send(info);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getCurrentUser = async (req, res, next) => {
+  try {
+    const token = req.cookies.accessToken;
+    if (!token) return res.status(401).send("Not authenticated");
+
+    const decoded = jwt.verify(token, process.env.JWT_KEY);
+    const user = await User.findById(decoded.id).select("-password");
+    res.status(200).send(user);
   } catch (err) {
     next(err);
   }
@@ -59,6 +73,8 @@ export const logout = async (req, res) => {
         httpOnly: true,
         secure: isProduction,
         sameSite: isProduction ? "None" : "Lax",
+        path: "/",
+        expires: new Date(0),
       })
       .status(200)
       .send("User has been logged out!");
