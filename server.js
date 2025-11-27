@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import authRoutes from "./routes/auth.route.js";
 import fileRoutes from "./routes/file.route.js";
+import tokenRoutes from "./routes/token.route.js";
 import { allowedOrigins } from "./utils/config.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,6 +54,7 @@ const upload = multer({ dest: "uploads/" });
 // API routes with upload middleware
 app.use("/api/auth", authRoutes);
 app.use("/api/file", fileRoutes);
+app.use("/api/token", tokenRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
