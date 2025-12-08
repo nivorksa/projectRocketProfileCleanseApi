@@ -20,6 +20,13 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
         windowSize: { width: 1920, height: 1080 },
         // You can also try disabling headless explicitly
         headless: false,
+        extraArgs: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-gpu",
+          "--disable-dev-shm-usage",
+          "--font-masking-mode=3",
+        ],
       });
 
       if (!wsUrl || !wsUrl.wsUrl) throw new Error("No wsUrl returned");
