@@ -5,7 +5,6 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   const GL = new GoLogin({
     token,
     profile_id: profileId,
-    disableFontDownloading: true,
   });
 
   // Wrap the start in a retry with extended timeout
