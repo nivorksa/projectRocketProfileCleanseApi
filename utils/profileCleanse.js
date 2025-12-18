@@ -1,5 +1,6 @@
 import launchGoLoginBrowser from "./goLogin.js";
 import extractPageContent from "./scraper/salesNav/extractPageContent.js";
+import loginRequired from "./scraper/salesNav/loginRequired.js";
 import salesNavIsExpired from "./scraper/salesNav/salesNavIsExpired.js";
 import extractFullName from "./scraper/salesNav/extractFullName.js";
 import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
@@ -92,6 +93,11 @@ const profileCleanse = async (
 
       // Wait until either profile content OR reactivate page appears
       await Promise.race([
+        // Login page loaded
+        page.waitForSelector('button[type="submit"][aria-label="Sign in"]', {
+          timeout: 8000,
+        }),
+
         // Normal profile loaded
         page.waitForSelector('h1[data-anonymize="person-name"]', {
           timeout: 8000,
@@ -103,29 +109,40 @@ const profileCleanse = async (
         }),
       ]).catch(() => {});
 
-      const isExpired = await salesNavIsExpired(page);
+      // Check for logged out session
+      const isLoggedOut = await loginRequired(page);
 
-      if (isExpired) {
+      if (isLoggedOut) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
         onLog({
           message: JSON.stringify({
-            status: "SalesNavExpired",
-            message: "Your SalesNav subscription is expired.",
+            status: "Logged Out",
+            stopped: true,
+            filePath: stopFlag.filePath,
+            message: "SalesNav session logged out. Please re-login.",
           }),
         });
 
-        // Persist whatever is processed so far
+        break;
+      }
+
+      // Check for expired SalesNav subscription
+      const isExpired = await salesNavIsExpired(page);
+
+      if (isExpired) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
 
-        // Signal frontend to stop & allow download
         onLog({
           message: JSON.stringify({
             status: "Session Expired",
             stopped: true,
             filePath: stopFlag.filePath,
+            message: "Your SalesNav subscription is expired.",
           }),
         });
 
-        break; // stop processing rows immediately
+        break;
       }
 
       try {
