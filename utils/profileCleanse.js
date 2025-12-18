@@ -1,10 +1,11 @@
 import launchGoLoginBrowser from "./goLogin.js";
+import extractPageContent from "./scraper/salesNav/extractPageContent.js";
+import salesNavIsExpired from "./scraper/salesNav/salesNavIsExpired.js";
 import extractFullName from "./scraper/salesNav/extractFullName.js";
 import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
 import extractCompany from "./scraper/salesNav/extractCompany.js";
 import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
 import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
-import extractPageContent from "./scraper/salesNav/extractPageContent.js";
 import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
 import createNewWorkbook from "./createNewWorkbook.js";
 
@@ -88,6 +89,44 @@ const profileCleanse = async (
         waitUntil: "domcontentloaded",
         timeout: 45000,
       });
+
+      // Wait until either profile content OR reactivate page appears
+      await Promise.race([
+        // Normal profile loaded
+        page.waitForSelector('h1[data-anonymize="person-name"]', {
+          timeout: 8000,
+        }),
+
+        // SalesNav expired → reactivate page
+        page.waitForSelector("button.premium-chooser__cta", {
+          timeout: 8000,
+        }),
+      ]).catch(() => {});
+
+      const isExpired = await salesNavIsExpired(page);
+
+      if (isExpired) {
+        onLog({
+          message: JSON.stringify({
+            status: "SalesNavExpired",
+            message: "Your SalesNav subscription is expired.",
+          }),
+        });
+
+        // Persist whatever is processed so far
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+        // Signal frontend to stop & allow download
+        onLog({
+          message: JSON.stringify({
+            status: "Session Expired",
+            stopped: true,
+            filePath: stopFlag.filePath,
+          }),
+        });
+
+        break; // stop processing rows immediately
+      }
 
       try {
         await page.waitForSelector('h1[data-anonymize="person-name"]', {
