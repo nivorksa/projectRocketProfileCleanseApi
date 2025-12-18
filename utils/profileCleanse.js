@@ -42,7 +42,7 @@ const profileCleanse = async (
   // Disable unnecessary resources
   await page.setRequestInterception(true);
   page.on("request", (req) => {
-    const blockedTypes = ["image", "stylesheet", "font", "media", "websocket"];
+    const blockedTypes = ["image", "stylesheet", "font", "media"];
     if (blockedTypes.includes(req.resourceType())) req.abort();
     else req.continue();
   });
@@ -88,7 +88,7 @@ const profileCleanse = async (
 
       await page.goto(profileUrl, {
         waitUntil: "domcontentloaded",
-        timeout: 45000,
+        timeout: 0,
       });
 
       // Wait until either profile content OR reactivate page appears
