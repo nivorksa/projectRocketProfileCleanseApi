@@ -1,189 +1,229 @@
 import ExcelJS from "exceljs";
-import profileCleanse from "../utils/profileCleanse.js";
-import fs from "fs";
 import path from "path";
+import fs from "fs";
+import { randomUUID } from "crypto";
+import profileCleanse from "../utils/profileCleanse.js";
+import createNewWorkbook from "../utils/createNewWorkbook.js";
+import { runningJobs } from "../utils/jobRuntime.js";
+import ScrapeJob from "../models/scrapeJob.model.js";
 
-let filePath = "";
-let sheetsData = {};
-let scrapingStopped = false; // global stop flag
+/* ------------------ UPLOAD ------------------ */
 
-export const uploadFile = async (req, res, next) => {
-  try {
-    filePath = req.file.path;
+export const uploadFile = async (req, res) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(req.file.path);
 
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
-
-    const sheetNames = workbook.worksheets.map((ws) => ws.name);
-
-    sheetsData = {};
-    workbook.worksheets.forEach((sheet) => {
-      sheetsData[sheet.name] = sheet;
-    });
-
-    res.status(200).json({ sheetNames });
-  } catch (err) {
-    next(err);
-  }
+  res.json({
+    filePath: req.file.path,
+    sheetNames: workbook.worksheets.map((w) => w.name),
+  });
 };
 
-export const processFile = async (req, res, next) => {
-  try {
-    const { sheetName } = req.body;
+/* ------------------ PROCESS ------------------ */
 
-    const selectedSheet = sheetsData[sheetName];
-    const columnNames = selectedSheet.getRow(1).values.slice(1);
-    const totalRows = selectedSheet.rowCount - 1; // excluding header row
+export const processFile = async (req, res) => {
+  const { filePath, sheetName } = req.body;
 
-    res.status(200).json({ columnNames, totalRows });
-  } catch (err) {
-    next(err);
-  }
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+
+  const sheet = workbook.getWorksheet(sheetName);
+
+  res.json({
+    columnNames: sheet.getRow(1).values.slice(1),
+    totalRows: sheet.rowCount - 1,
+  });
 };
 
-/**
- * Streaming scrape with real-time events, stop support, min connections
- */
-export const scrapeProfilesStream = async (req, res, next) => {
+/* ------------------ START JOB ------------------ */
+
+export const startScrape = async (req, res) => {
   try {
+    const jobId = randomUUID();
+    const userId = req.userId;
+
     const {
+      filePath,
       sheetName,
       fullNameColumn,
       jobTitleColumn,
       companyColumn,
       urlColumn,
-      goLoginToken,
-      goLoginProfileId,
       minimumConnections,
       keywordSearchEnabled,
       keywords,
-    } = req.query;
+      goLoginToken,
+      goLoginProfileId,
+    } = req.body;
 
-    if (
-      !sheetName ||
-      !fullNameColumn ||
-      !jobTitleColumn ||
-      !companyColumn ||
-      !urlColumn ||
-      !goLoginToken ||
-      !goLoginProfileId
-    ) {
-      return res.status(400).json({ message: "Missing required fields" });
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(400).json({ message: "Excel file not found" });
     }
 
-    scrapingStopped = false;
-    const goLogin = { token: goLoginToken, profileId: goLoginProfileId };
-
+    // Read original workbook
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
+    const sheet = workbook.getWorksheet(sheetName);
 
-    const worksheet = workbook.getWorksheet(sheetName);
-    const headerRow = worksheet.getRow(1);
-    const headers = headerRow.values.map((v) =>
-      typeof v === "string" ? v.trim().toLowerCase() : v
+    // ✅ Create a cleansed workbook BEFORE scraping
+    const { newWorkbook, newFilePath } = await createNewWorkbook(
+      sheet,
+      filePath
     );
 
-    const getIndex = (name) =>
-      headers.findIndex((v) => v === name.trim().toLowerCase());
-
-    const fullNameColumnIndex = getIndex(fullNameColumn);
-    const jobTitleColumnIndex = getIndex(jobTitleColumn);
-    const companyColumnIndex = getIndex(companyColumn);
-    const urlColumnIndex = getIndex(urlColumn);
-
-    if (
-      [
-        fullNameColumnIndex,
-        jobTitleColumnIndex,
-        companyColumnIndex,
-        urlColumnIndex,
-      ].some((i) => i <= 0)
-    ) {
-      return res
-        .status(400)
-        .json({ message: "One or more columns not found." });
-    }
-
-    let minConnectionCountNum = parseInt(minimumConnections, 10);
-    if (isNaN(minConnectionCountNum)) minConnectionCountNum = 0;
-
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
+    const job = await ScrapeJob.create({
+      jobId,
+      userId,
+      sheetName,
+      filePath, // original file
+      cleanseFilePath: newFilePath, // cleansed copy
+      status: "running",
     });
-    res.flushHeaders();
 
-    const sendEvent = (data) => {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
+    runningJobs.set(jobId, {
+      stopFlag: { stopped: false },
+      logs: [],
+    });
 
-    try {
-      // ✅ profileCleanse writes a new _cleanse file and updates stopFlag.filePath
-      const stopFlag = {
-        get stopped() {
-          return scrapingStopped;
-        },
-        filePath, // initial uploaded file
-      };
+    res.json({ jobId });
 
-      await profileCleanse(
-        worksheet,
-        {
-          fullNameColumnIndex,
-          jobTitleColumnIndex,
-          companyColumnIndex,
-          urlColumnIndex,
-          minConnectionCount: minConnectionCountNum,
-          keywordSearchEnabled: keywordSearchEnabled === "true",
-          keywords: keywords ? keywords.split(",") : [],
-        },
-        goLogin,
-        sendEvent,
-        stopFlag
-      );
-
-      // final _cleanse file path
-      const cleanseFilePath = stopFlag.filePath;
-
-      if (scrapingStopped) {
-        sendEvent({ stopped: true, filePath: cleanseFilePath });
-      } else {
-        sendEvent({ done: true, filePath: cleanseFilePath });
+    // Start the scrape
+    runScrape(jobId, { ...req.body, cleanseFilePath: newFilePath }).catch(
+      async (err) => {
+        console.error("Scrape error:", err);
+        const job = await ScrapeJob.findOne({ jobId });
+        if (job) {
+          job.status = "error";
+          job.error = err.message;
+          await job.save();
+        }
       }
-
-      res.end();
-    } catch (scrapeErr) {
-      sendEvent({ error: true, message: scrapeErr.message || "Scrape failed" });
-      res.end();
-    }
+    );
   } catch (err) {
-    if (!res.headersSent) next(err);
-    res.end();
+    res.status(500).json({ message: err.message });
   }
 };
 
-// Stop scraping endpoint sets flag
-export const stopScraping = (req, res) => {
-  scrapingStopped = true;
-  res.status(200).json({ message: "Scraping stopped" });
+/* ------------------ SCRAPE RUNNER ------------------ */
+
+const runScrape = async (jobId, config) => {
+  const job = await ScrapeJob.findOne({ jobId });
+  const runtime = runningJobs.get(jobId);
+
+  // Read cleansed workbook
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(config.cleanseFilePath);
+  const sheet = workbook.getWorksheet(job.sheetName);
+
+  const headers = sheet
+    .getRow(1)
+    .values.map((v) => (typeof v === "string" ? v.toLowerCase() : v));
+
+  const idx = (name) => headers.indexOf(name.toLowerCase());
+  const fullNameIndex = idx(config.fullNameColumn);
+  const jobTitleIndex = idx(config.jobTitleColumn);
+  const companyIndex = idx(config.companyColumn);
+  const urlIndex = idx(config.urlColumn);
+
+  if (
+    [fullNameIndex, jobTitleIndex, companyIndex, urlIndex].some((i) => i < 0)
+  ) {
+    job.status = "error";
+    job.error = "Invalid column selection";
+    await job.save();
+    throw new Error("Invalid column selection");
+  }
+
+  const stopFlag = { stopped: false, filePath: config.cleanseFilePath };
+  runtime.stopFlag = stopFlag;
+
+  await profileCleanse(
+    sheet,
+    {
+      fullNameColumnIndex: fullNameIndex,
+      jobTitleColumnIndex: jobTitleIndex,
+      companyColumnIndex: companyIndex,
+      urlColumnIndex: urlIndex,
+      minConnectionCount: Number(config.minimumConnections),
+      keywordSearchEnabled: config.keywordSearchEnabled,
+      keywords: config.keywords || [],
+    },
+    {
+      token: config.goLoginToken,
+      profileId: config.goLoginProfileId,
+    },
+    (log) => runtime.logs.push(log),
+    stopFlag
+  );
+
+  job.status = runtime.stopFlag.stopped ? "stopped" : "done";
+  job.cleanseFilePath = stopFlag.filePath;
+  await job.save();
 };
 
-export const downloadFile = (req, res) => {
-  const fileToDownload = req.query.path;
-  if (!fileToDownload)
-    return res.status(400).json({ message: "File path is required" });
+/* ------------------ STREAM ------------------ */
 
-  const absolutePath = path.resolve(decodeURIComponent(fileToDownload));
+export const streamScrape = async (req, res) => {
+  const { jobId } = req.query;
+  const job = await ScrapeJob.findOne({ jobId });
 
-  fs.access(absolutePath, fs.constants.F_OK, (err) => {
-    if (err) return res.status(404).json({ message: "File not found" });
-    res.download(absolutePath, (downloadErr) => {
-      if (downloadErr) {
-        console.error("Download error:", downloadErr);
-        res.status(500).end();
-      }
-    });
+  if (!job || job.userId.toString() !== req.userId) {
+    return res.sendStatus(403);
+  }
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
   });
+
+  const runtime = runningJobs.get(jobId);
+
+  runtime?.logs.forEach((l) => res.write(`data: ${JSON.stringify(l)}\n\n`));
+
+  const interval = setInterval(async () => {
+    const j = await ScrapeJob.findOne({ jobId });
+    if (j.status !== "running") {
+      res.write(
+        `data: ${JSON.stringify({
+          done: true,
+          filePath: j.cleanseFilePath,
+        })}\n\n`
+      );
+      clearInterval(interval);
+      res.end();
+    }
+  }, 1000);
+
+  req.on("close", () => clearInterval(interval));
+};
+
+/* ------------------ STOP ------------------ */
+
+export const stopScrape = async (req, res) => {
+  const { jobId } = req.body;
+  const runtime = runningJobs.get(jobId);
+  if (runtime) runtime.stopFlag.stopped = true;
+  res.sendStatus(200);
+};
+
+/* ------------------ JOB LIST ------------------ */
+
+export const listJobs = async (req, res) => {
+  const jobs = await ScrapeJob.find({
+    userId: req.userId,
+    status: "running",
+  }).sort({ createdAt: -1 });
+
+  res.json(jobs);
+};
+
+/* ------------------ DOWNLOAD ------------------ */
+
+export const downloadJobFile = async (req, res) => {
+  const job = await ScrapeJob.findOne({ jobId: req.params.jobId });
+  if (!job || job.userId.toString() !== req.userId) return res.sendStatus(403);
+
+  res.download(path.resolve(job.cleanseFilePath));
 };

@@ -28,12 +28,8 @@ const profileCleanse = async (
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
 ) => {
-  // Create a new workbook for cleansing
-  const { newWorkbook, newFilePath } = await createNewWorkbook(
-    worksheet,
-    stopFlag.filePath
-  );
-  stopFlag.filePath = newFilePath;
+  // Use the workbook already created by backend
+  const newWorkbook = worksheet.workbook;
   const newSheet = newWorkbook.getWorksheet(worksheet.name);
 
   const browser = await launchGoLoginBrowser(goLogin);
@@ -57,7 +53,12 @@ const profileCleanse = async (
 
   for (let i = 2; i <= newSheet.rowCount; i++) {
     if (stopFlag.stopped) {
-      onLog({ message: `Scraping stopped at row ${i}` });
+      onLog({
+        status: "Stopped",
+        row: i,
+        message: `Scraping stopped at row ${i}`,
+      });
+
       await newWorkbook.xlsx.writeFile(stopFlag.filePath);
       break;
     }
@@ -80,127 +81,120 @@ const profileCleanse = async (
         .toLowerCase();
 
       if (!profileUrl || !profileUrl.startsWith("http")) {
-        onLog({ message: JSON.stringify({ row: i, status: "Invalid URL" }) });
+        onLog({
+          row: i,
+          status: "Invalid URL",
+        });
+
         row.getCell(1).value = "error";
         row.commit();
         continue;
       }
 
       await page.goto(profileUrl, {
-        waitUntil: "domcontentloaded",
+        waitUntil: "networkidle2", // wait until most XHR requests finish
         timeout: 0,
       });
 
-      // Wait until either profile content OR reactivate page appears
-      await Promise.race([
-        // Login page loaded
-        page.waitForSelector('button[type="submit"][aria-label="Sign in"]', {
-          timeout: 8000,
-        }),
+      // Short delay to allow SPA redirect / GraphQL fetch
+      await delay(2000);
 
-        // Normal profile loaded
-        page.waitForSelector('h1[data-anonymize="person-name"]', {
-          timeout: 8000,
-        }),
+      // Detect page state
+      const url = page.url();
+      const isLoginPage =
+        url.includes("/login") ||
+        (await page.$('button[type="submit"][aria-label="Sign in"]'));
+      const isExpiredPage =
+        url.includes("/reactivate") ||
+        (await page.$("button.premium-chooser__cta"));
 
-        // SalesNav expired → reactivate page
-        page.waitForSelector("button.premium-chooser__cta", {
-          timeout: 8000,
-        }),
-      ]).catch(() => {});
-
-      // Check for logged out session
-      const isLoggedOut = await loginRequired(page);
-
-      if (isLoggedOut) {
+      // Handle logged out session
+      if (isLoginPage || (await loginRequired(page))) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
 
         onLog({
-          message: JSON.stringify({
-            status: "Logged Out",
-            stopped: true,
-            filePath: stopFlag.filePath,
-            message: "SalesNav session logged out. Please re-login.",
-          }),
+          status: "Logged Out",
+          stopped: true,
+          filePath: stopFlag.filePath,
+          error: "SalesNav session logged out. Please re-login.",
         });
 
         break;
       }
 
-      // Check for expired SalesNav subscription
-      const isExpired = await salesNavIsExpired(page);
-
-      if (isExpired) {
+      // Handle expired SalesNav subscription
+      if (isExpiredPage || (await salesNavIsExpired(page))) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
 
         onLog({
-          message: JSON.stringify({
-            status: "Session Expired",
-            stopped: true,
-            filePath: stopFlag.filePath,
-            message: "Your SalesNav subscription is expired.",
-          }),
+          status: "Session Expired",
+          stopped: true,
+          filePath: stopFlag.filePath,
+          error: "Your SalesNav subscription is expired.",
         });
 
         break;
       }
 
-      try {
+      // Handle normal profile
+      if (!isLoginPage && !isExpiredPage) {
         await page.waitForSelector('h1[data-anonymize="person-name"]', {
-          timeout: 10000,
+          timeout: 0,
         });
-      } catch {}
 
-      await delay(1000);
+        await delay(1000);
 
-      const locked = await isLockedProfile(page);
-      if (locked) {
-        onLog({
-          message: JSON.stringify({ row: i, status: "Locked profile" }),
-        });
-        row.getCell(1).value = "locked";
+        const locked = await isLockedProfile(page);
+        if (locked) {
+          onLog({
+            row: i,
+            status: "Locked profile",
+          });
+
+          row.getCell(1).value = "locked";
+          row.commit();
+          continue;
+        }
+
+        // Extract main fields
+        const [fullName, jobTitle, company, connectionCount] =
+          await Promise.all([
+            extractFullName(page),
+            extractJobTitle(page),
+            extractCompany(page),
+            extractConnectionCount(page),
+          ]);
+
+        const matches = {
+          fullName: (fullName || "").toLowerCase() === fullNameExcel,
+          jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
+          company: (company || "").toLowerCase() === companyExcel,
+          connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
+        };
+
+        const overallMatch =
+          matches.fullName &&
+          matches.jobTitle &&
+          matches.company &&
+          matches.connectionCount;
+
+        let noteValue = overallMatch ? "good" : "bad";
+
+        // Keyword search after expanding "See more" sections
+        if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
+          await expandSeeMore(page);
+          const pageContent = (await extractPageContent(page)).toLowerCase();
+          const matchedKeywords = keywords.filter((k) =>
+            pageContent.includes(k.toLowerCase())
+          );
+          if (matchedKeywords.length > 0)
+            noteValue = matchedKeywords.join(", ");
+        }
+
+        row.getCell(1).value = noteValue;
         row.commit();
-        continue;
-      }
 
-      // Extract main fields
-      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
-        extractFullName(page),
-        extractJobTitle(page),
-        extractCompany(page),
-        extractConnectionCount(page),
-      ]);
-
-      const matches = {
-        fullName: (fullName || "").toLowerCase() === fullNameExcel,
-        jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
-        company: (company || "").toLowerCase() === companyExcel,
-        connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
-      };
-
-      const overallMatch =
-        matches.fullName &&
-        matches.jobTitle &&
-        matches.company &&
-        matches.connectionCount;
-
-      let noteValue = overallMatch ? "good" : "bad";
-
-      // Keyword search after expanding "See more" sections
-      if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
-        await expandSeeMore(page);
-        const pageContent = (await extractPageContent(page)).toLowerCase();
-        const matchedKeywords = keywords.filter((k) =>
-          pageContent.includes(k.toLowerCase())
-        );
-        if (matchedKeywords.length > 0) noteValue = matchedKeywords.join(", ");
-      }
-
-      row.getCell(1).value = noteValue;
-      row.commit();
-
-      onLog({
-        message: JSON.stringify({
+        onLog({
           row: i,
           status: overallMatch ? "Match" : "Mismatch",
           matches,
@@ -217,24 +211,23 @@ const profileCleanse = async (
             company: (company || "").toLowerCase(),
             connectionCount: Number(connectionCount) || 0,
           },
-        }),
-      });
+        });
 
-      rowsSinceLastWrite++;
-      if (rowsSinceLastWrite >= 10) {
-        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
-        rowsSinceLastWrite = 0;
+        rowsSinceLastWrite++;
+        if (rowsSinceLastWrite >= 10) {
+          await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+          rowsSinceLastWrite = 0;
+        }
+
+        await delay(getRandomDelay());
       }
-
-      await delay(getRandomDelay());
     } catch (err) {
       onLog({
-        message: JSON.stringify({
-          row: i,
-          status: "Error",
-          error: err.message,
-        }),
+        row: i,
+        status: "Error",
+        error: err.message,
       });
+
       row.getCell(1).value = "error";
       row.commit();
       await delay(getRandomDelay());

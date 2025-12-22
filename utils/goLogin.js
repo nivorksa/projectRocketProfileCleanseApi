@@ -14,7 +14,7 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       wsUrl = await GL.start({
-        timeout: 120000, // 2 minutes
+        timeout: 0, // 2 minutes
         // Force visible, full-screen mode
         show: true,
         windowSize: { width: 1920, height: 1080 },
