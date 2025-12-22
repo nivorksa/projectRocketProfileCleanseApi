@@ -83,7 +83,16 @@ export const startScrape = async (req, res) => {
 
     runningJobs.set(jobId, {
       stopFlag: { stopped: false },
-      logs: [],
+      logs: [
+        {
+          status: "Started",
+          message: "Job created",
+        },
+        {
+          status: "Launching GoLogin",
+          message: "Initializing browser session",
+        },
+      ],
     });
 
     res.json({ jobId });
@@ -138,6 +147,11 @@ const runScrape = async (jobId, config) => {
   const stopFlag = { stopped: false, filePath: config.cleanseFilePath };
   runtime.stopFlag = stopFlag;
 
+  runtime.logs.push({
+    status: "Scraping",
+    message: "Scraping in progress",
+  });
+
   await profileCleanse(
     sheet,
     {
@@ -158,6 +172,14 @@ const runScrape = async (jobId, config) => {
   );
 
   job.status = runtime.stopFlag.stopped ? "stopped" : "done";
+
+  runtime.logs.push({
+    status: runtime.stopFlag.stopped ? "Stopped" : "Completed",
+    message: runtime.stopFlag.stopped
+      ? "Scraping stopped safely"
+      : "Scraping completed successfully",
+  });
+
   job.cleanseFilePath = stopFlag.filePath;
   await job.save();
 };
@@ -179,10 +201,17 @@ export const streamScrape = async (req, res) => {
   });
 
   const runtime = runningJobs.get(jobId);
-
-  runtime?.logs.forEach((l) => res.write(`data: ${JSON.stringify(l)}\n\n`));
+  let lastSentIndex = 0;
 
   const interval = setInterval(async () => {
+    // Send only NEW logs
+    while (runtime && lastSentIndex < runtime.logs.length) {
+      res.write(`data: ${JSON.stringify(runtime.logs[lastSentIndex++])}\n\n`);
+    }
+
+    // heartbeat (transport-only)
+    res.write(`:\n\n`);
+
     const j = await ScrapeJob.findOne({ jobId });
     if (j.status !== "running") {
       res.write(
@@ -204,7 +233,15 @@ export const streamScrape = async (req, res) => {
 export const stopScrape = async (req, res) => {
   const { jobId } = req.body;
   const runtime = runningJobs.get(jobId);
-  if (runtime) runtime.stopFlag.stopped = true;
+  if (runtime) {
+    runtime.logs.push({
+      status: "Stop Requested",
+      message: "Scraping stop requested by user",
+    });
+
+    runtime.stopFlag.stopped = true;
+  }
+
   res.sendStatus(200);
 };
 

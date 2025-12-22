@@ -32,7 +32,10 @@ const profileCleanse = async (
   const newWorkbook = worksheet.workbook;
   const newSheet = newWorkbook.getWorksheet(worksheet.name);
 
-  const browser = await launchGoLoginBrowser(goLogin);
+  const browserPromise = launchGoLoginBrowser(goLogin);
+
+  const browser = await browserPromise; // now wait for browser to be ready
+
   const page = await browser.newPage();
 
   // Disable unnecessary resources
