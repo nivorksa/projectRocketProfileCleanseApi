@@ -145,12 +145,7 @@ export const scrapeProfilesStream = async (req, res, next) => {
       );
 
       // final _cleanse file path
-      const ext = path.extname(filePath);
-      const base = path.basename(filePath, ext);
-      const cleanseFilePath = path.join(
-        path.dirname(filePath),
-        `${base}_cleanse${ext}`
-      );
+      const cleanseFilePath = stopFlag.filePath;
 
       if (scrapingStopped) {
         sendEvent({ stopped: true, filePath: cleanseFilePath });
