@@ -104,38 +104,31 @@ const profileCleanse = async (
 
       // Detect page state
       const url = page.url();
-      const isLoginPage =
-        url.includes("/login") ||
-        (await page.$('button[type="submit"][aria-label="Sign in"]'));
-      const isExpiredPage =
-        url.includes("/reactivate") ||
-        url.includes("/premium") ||
-        (await page.$("button.premium-chooser__cta"));
 
       // Handle logged out session
-      if (isLoginPage || (await loginRequired(page))) {
+      if (await loginRequired(page)) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
 
         onLog({
-          status: "Logged Out",
-          stopped: true,
-          filePath: stopFlag.filePath,
+          errorStatus: "Logged Out",
           error: "SalesNav session logged out. Please re-login.",
         });
+
+        stopFlag.stopped = true;
 
         break;
       }
 
       // Handle expired SalesNav subscription
-      if (isExpiredPage || (await salesNavIsExpired(page))) {
+      if (await salesNavIsExpired(page)) {
         await newWorkbook.xlsx.writeFile(stopFlag.filePath);
 
         onLog({
-          status: "Session Expired",
-          stopped: true,
-          filePath: stopFlag.filePath,
+          errorStatus: "Session Expired",
           error: "Your SalesNav subscription is expired.",
         });
+
+        stopFlag.stopped = true;
 
         break;
       }
