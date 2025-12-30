@@ -30,3 +30,19 @@ export const addToken = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getUserTokens = async (req, res, next) => {
+  try {
+    const tokens = await Token.find({ userId: req.userId }).sort({
+      createdAt: -1,
+    });
+
+    if (!tokens || tokens.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    res.status(200).json(tokens);
+  } catch (err) {
+    next(err);
+  }
+};

@@ -100,7 +100,7 @@ const profileCleanse = async (
       });
 
       // Short delay to allow SPA redirect / GraphQL fetch
-      await delay(2000);
+      await delay(4000);
 
       // Detect page state
       const url = page.url();
@@ -109,6 +109,7 @@ const profileCleanse = async (
         (await page.$('button[type="submit"][aria-label="Sign in"]'));
       const isExpiredPage =
         url.includes("/reactivate") ||
+        url.includes("/premium") ||
         (await page.$("button.premium-chooser__cta"));
 
       // Handle logged out session
