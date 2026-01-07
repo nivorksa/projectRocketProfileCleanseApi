@@ -134,90 +134,84 @@ const profileCleanse = async (
       }
 
       // Handle normal profile
-      if (!isLoginPage && !isExpiredPage) {
-        await page.waitForSelector('h1[data-anonymize="person-name"]', {
-          timeout: 0,
-        });
+      await page.waitForSelector('h1[data-anonymize="person-name"]', {
+        timeout: 1000,
+      });
 
-        await delay(1000);
-
-        const locked = await isLockedProfile(page);
-        if (locked) {
-          onLog({
-            row: i,
-            status: "Locked profile",
-          });
-
-          row.getCell(1).value = "locked";
-          row.commit();
-          continue;
-        }
-
-        // Extract main fields
-        const [fullName, jobTitle, company, connectionCount] =
-          await Promise.all([
-            extractFullName(page),
-            extractJobTitle(page),
-            extractCompany(page),
-            extractConnectionCount(page),
-          ]);
-
-        const matches = {
-          fullName: (fullName || "").toLowerCase() === fullNameExcel,
-          jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
-          company: (company || "").toLowerCase() === companyExcel,
-          connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
-        };
-
-        const overallMatch =
-          matches.fullName &&
-          matches.jobTitle &&
-          matches.company &&
-          matches.connectionCount;
-
-        let noteValue = overallMatch ? "good" : "bad";
-
-        // Keyword search after expanding "See more" sections
-        if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
-          await expandSeeMore(page);
-          const pageContent = (await extractPageContent(page)).toLowerCase();
-          const matchedKeywords = keywords.filter((k) =>
-            pageContent.includes(k.toLowerCase())
-          );
-          if (matchedKeywords.length > 0)
-            noteValue = matchedKeywords.join(", ");
-        }
-
-        row.getCell(1).value = noteValue;
-        row.commit();
-
+      const locked = await isLockedProfile(page);
+      if (locked) {
         onLog({
           row: i,
-          status: overallMatch ? "Match" : "Mismatch",
-          matches,
-          note: noteValue,
-          excel: {
-            fullName: fullNameExcel,
-            jobTitle: jobTitleExcel,
-            company: companyExcel,
-            connectionCount: minConnectionCount,
-          },
-          salesnav: {
-            fullName: (fullName || "").toLowerCase(),
-            jobTitle: (jobTitle || "").toLowerCase(),
-            company: (company || "").toLowerCase(),
-            connectionCount: Number(connectionCount) || 0,
-          },
+          status: "Locked profile",
         });
 
-        rowsSinceLastWrite++;
-        if (rowsSinceLastWrite >= 10) {
-          await newWorkbook.xlsx.writeFile(stopFlag.filePath);
-          rowsSinceLastWrite = 0;
-        }
-
-        await delay(getRandomDelay());
+        row.getCell(1).value = "locked";
+        row.commit();
+        continue;
       }
+
+      // Extract main fields
+      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
+        extractFullName(page),
+        extractJobTitle(page),
+        extractCompany(page),
+        extractConnectionCount(page),
+      ]);
+
+      const matches = {
+        fullName: (fullName || "").toLowerCase() === fullNameExcel,
+        jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
+        company: (company || "").toLowerCase() === companyExcel,
+        connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
+      };
+
+      const overallMatch =
+        matches.fullName &&
+        matches.jobTitle &&
+        matches.company &&
+        matches.connectionCount;
+
+      let noteValue = overallMatch ? "good" : "bad";
+
+      // Keyword search after expanding "See more" sections
+      if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
+        await expandSeeMore(page);
+        const pageContent = (await extractPageContent(page)).toLowerCase();
+        const matchedKeywords = keywords.filter((k) =>
+          pageContent.includes(k.toLowerCase())
+        );
+        if (matchedKeywords.length > 0) noteValue = matchedKeywords.join(", ");
+      }
+
+      row.getCell(1).value = noteValue;
+      row.commit();
+
+      onLog({
+        row: i,
+        status: overallMatch ? "Match" : "Mismatch",
+        matches,
+        note: noteValue,
+        excel: {
+          fullName: fullNameExcel,
+          jobTitle: jobTitleExcel,
+          company: companyExcel,
+          connectionCount: minConnectionCount,
+        },
+        salesnav: {
+          fullName: (fullName || "").toLowerCase(),
+          jobTitle: (jobTitle || "").toLowerCase(),
+          company: (company || "").toLowerCase(),
+          connectionCount: Number(connectionCount) || 0,
+        },
+      });
+
+      rowsSinceLastWrite++;
+      if (rowsSinceLastWrite >= 10) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+        rowsSinceLastWrite = 0;
+      }
+
+      await delay(getRandomDelay());
     } catch (err) {
       onLog({
         row: i,
