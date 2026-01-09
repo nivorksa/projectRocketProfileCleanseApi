@@ -32,6 +32,11 @@ const scrapeJobSchema = new Schema(
       required: true,
     },
 
+    originalFileName: {
+      type: String,
+      required: true,
+    },
+
     cleanseFilePath: {
       type: String,
       required: true,
@@ -58,16 +63,17 @@ const scrapeJobSchema = new Schema(
       },
     ],
 
-    // Persist input values for restore
-    fullNameColumn: String,
-    companyColumn: String,
-    jobTitleColumn: String,
-    urlColumn: String,
-    minimumConnections: Number,
-    keywordSearchEnabled: Boolean,
-    keywords: [String],
-    goLoginToken: String,
-    goLoginProfileId: String,
+    config: {
+      fullNameColumn: String,
+      companyColumn: String,
+      jobTitleColumn: String,
+      urlColumn: String,
+      minimumConnections: Number,
+      keywordSearchEnabled: Boolean,
+      keywords: [String],
+      goLoginToken: String,
+      goLoginProfileId: String,
+    },
 
     error: String,
   },

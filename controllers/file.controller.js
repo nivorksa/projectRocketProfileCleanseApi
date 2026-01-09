@@ -13,10 +13,16 @@ export const uploadFile = async (req, res) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(req.file.path);
 
+  // store the original file name in a variable
+  const originalFileName = req.file.originalname;
+
   res.json({
     filePath: req.file.path,
+    originalFileName,
     sheetNames: workbook.worksheets.map((w) => w.name),
   });
+
+  console.log(req.file.originalname);
 };
 
 /* ------------------ PROCESS ------------------ */
@@ -43,6 +49,7 @@ export const startScrape = async (req, res) => {
 
     const {
       filePath,
+      originalFileName,
       sheetName,
       fullNameColumn,
       jobTitleColumn,
@@ -55,7 +62,7 @@ export const startScrape = async (req, res) => {
       goLoginProfileId,
     } = req.body;
 
-    // ✅ Prevent duplicate jobs per user
+    // Prevent duplicate jobs per user
     const existing = await ScrapeJob.findOne({
       userId,
       status: "running",
@@ -82,6 +89,7 @@ export const startScrape = async (req, res) => {
       userId,
       sheetName,
       filePath,
+      originalFileName,
       cleanseFilePath: newFilePath,
       status: "running",
       lastRow: 1,
