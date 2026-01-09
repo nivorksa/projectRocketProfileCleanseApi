@@ -39,7 +39,6 @@ export const processFile = async (req, res) => {
 
 export const startScrape = async (req, res) => {
   try {
-    const jobId = randomUUID();
     const userId = req.userId;
 
     const {
@@ -56,59 +55,67 @@ export const startScrape = async (req, res) => {
       goLoginProfileId,
     } = req.body;
 
-    // Check if file exists
+    // ✅ Prevent duplicate jobs per user
+    const existing = await ScrapeJob.findOne({
+      userId,
+      status: "running",
+    });
+
+    if (existing) {
+      return res.json({ jobId: existing.jobId });
+    }
+
     if (!fs.existsSync(filePath)) {
       return res.status(400).json({ message: "Excel file not found" });
     }
 
-    // Read original workbook
+    const jobId = randomUUID();
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
     const sheet = workbook.getWorksheet(sheetName);
 
-    // ✅ Create a cleansed workbook BEFORE scraping
-    const { newWorkbook, newFilePath } = await createNewWorkbook(
-      sheet,
-      filePath
-    );
+    const { newFilePath } = await createNewWorkbook(sheet, filePath);
 
     const job = await ScrapeJob.create({
       jobId,
       userId,
       sheetName,
-      filePath, // original file
-      cleanseFilePath: newFilePath, // cleansed copy
+      filePath,
+      cleanseFilePath: newFilePath,
       status: "running",
-    });
-
-    runningJobs.set(jobId, {
-      stopFlag: { stopped: false },
+      lastRow: 1,
       logs: [
-        {
-          status: "Started",
-          message: "Job created",
-        },
+        { status: "Started", message: "Job created" },
         {
           status: "Launching GoLogin",
           message: "Initializing browser session",
         },
       ],
+      config: {
+        fullNameColumn,
+        companyColumn,
+        jobTitleColumn,
+        urlColumn,
+        minimumConnections,
+        keywordSearchEnabled,
+        keywords,
+        goLoginToken,
+        goLoginProfileId,
+      },
     });
 
     res.json({ jobId });
 
-    // Start the scrape
-    runScrape(jobId, { ...req.body, cleanseFilePath: newFilePath }).catch(
-      async (err) => {
-        console.error("Scrape error:", err);
-        const job = await ScrapeJob.findOne({ jobId });
-        if (job) {
-          job.status = "error";
-          job.error = err.message;
-          await job.save();
-        }
-      }
-    );
+    runScrape(jobId, {
+      ...req.body,
+      cleanseFilePath: newFilePath,
+    }).catch(async (err) => {
+      await ScrapeJob.updateOne(
+        { jobId },
+        { status: "error", error: err.message }
+      );
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -118,11 +125,9 @@ export const startScrape = async (req, res) => {
 
 const runScrape = async (jobId, config) => {
   const job = await ScrapeJob.findOne({ jobId });
-  const runtime = runningJobs.get(jobId);
 
-  // Read cleansed workbook
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(config.cleanseFilePath);
+  await workbook.xlsx.readFile(job.cleanseFilePath);
   const sheet = workbook.getWorksheet(job.sheetName);
 
   const headers = sheet
@@ -130,6 +135,7 @@ const runScrape = async (jobId, config) => {
     .values.map((v) => (typeof v === "string" ? v.toLowerCase() : v));
 
   const idx = (name) => headers.indexOf(name.toLowerCase());
+
   const fullNameIndex = idx(config.fullNameColumn);
   const jobTitleIndex = idx(config.jobTitleColumn);
   const companyIndex = idx(config.companyColumn);
@@ -138,23 +144,27 @@ const runScrape = async (jobId, config) => {
   if (
     [fullNameIndex, jobTitleIndex, companyIndex, urlIndex].some((i) => i < 0)
   ) {
-    job.status = "error";
-    job.error = "Invalid column selection";
-    await job.save();
+    await ScrapeJob.updateOne(
+      { jobId },
+      { status: "error", error: "Invalid column selection" }
+    );
     throw new Error("Invalid column selection");
   }
 
-  const stopFlag = { stopped: false, filePath: config.cleanseFilePath };
-  runtime.stopFlag = stopFlag;
+  const stopFlag = { stopped: false, filePath: job.cleanseFilePath };
 
-  runtime.logs.push({
-    status: "Scraping",
-    message: "Scraping in progress",
-  });
+  await ScrapeJob.updateOne(
+    { jobId },
+    { $push: { logs: { status: "Scraping", message: "Scraping in progress" } } }
+  );
+
+  // ✅ Resume from last processed row
+  const startRow = (job.lastRow || 1) + 1;
 
   await profileCleanse(
     sheet,
     {
+      startRow,
       fullNameColumnIndex: fullNameIndex,
       jobTitleColumnIndex: jobTitleIndex,
       companyColumnIndex: companyIndex,
@@ -167,27 +177,40 @@ const runScrape = async (jobId, config) => {
       token: config.goLoginToken,
       profileId: config.goLoginProfileId,
     },
-    (log) => runtime.logs.push(log),
+    async (log) => {
+      await ScrapeJob.updateOne(
+        { jobId },
+        {
+          $push: { logs: log },
+          ...(log.row !== undefined ? { $set: { lastRow: log.row } } : {}),
+        }
+      );
+    },
     stopFlag
   );
 
-  job.status = runtime.stopFlag.stopped ? "stopped" : "done";
-
-  runtime.logs.push({
-    status: runtime.stopFlag.stopped ? "Stopped" : "Completed",
-    message: runtime.stopFlag.stopped
-      ? "Scraping stopped safely"
-      : "Scraping completed successfully",
-  });
-
-  job.cleanseFilePath = stopFlag.filePath;
-  await job.save();
+  await ScrapeJob.updateOne(
+    { jobId },
+    {
+      status: stopFlag.stopped ? "stopped" : "done",
+      cleanseFilePath: stopFlag.filePath,
+      $push: {
+        logs: {
+          status: stopFlag.stopped ? "Stopped" : "Completed",
+          message: stopFlag.stopped
+            ? "Scraping stopped safely"
+            : "Scraping completed successfully",
+        },
+      },
+    }
+  );
 };
 
 /* ------------------ STREAM ------------------ */
 
 export const streamScrape = async (req, res) => {
-  const { jobId } = req.query;
+  const { jobId, from = 0 } = req.query;
+
   const job = await ScrapeJob.findOne({ jobId });
 
   if (!job || job.userId.toString() !== req.userId) {
@@ -200,19 +223,28 @@ export const streamScrape = async (req, res) => {
     Connection: "keep-alive",
   });
 
-  const runtime = runningJobs.get(jobId);
-  let lastSentIndex = 0;
+  let lastSentIndex = Number(from);
 
   const interval = setInterval(async () => {
-    // Send only NEW logs
-    while (runtime && lastSentIndex < runtime.logs.length) {
-      res.write(`data: ${JSON.stringify(runtime.logs[lastSentIndex++])}\n\n`);
+    const j = await ScrapeJob.findOne({ jobId });
+
+    if (!j) {
+      console.warn(`Job ${jobId} not found. Stopping stream.`);
+      clearInterval(interval);
+      return res.end();
     }
 
-    // heartbeat (transport-only)
+    const newLogs = j.logs.slice(lastSentIndex);
+    if (newLogs.length > 0) {
+      for (const log of newLogs) {
+        res.write(`data: ${JSON.stringify(log)}\n\n`);
+      }
+      lastSentIndex += newLogs.length;
+    }
+
+    // send heartbeat
     res.write(`:\n\n`);
 
-    const j = await ScrapeJob.findOne({ jobId });
     if (j.status !== "running") {
       res.write(
         `data: ${JSON.stringify({

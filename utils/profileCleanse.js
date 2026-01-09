@@ -16,6 +16,7 @@ const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
 const profileCleanse = async (
   worksheet,
   {
+    startRow = 2,
     fullNameColumnIndex,
     jobTitleColumnIndex,
     companyColumnIndex,
@@ -48,13 +49,19 @@ const profileCleanse = async (
 
   await page.setViewport({ width: 1366, height: 768 });
 
-  // Add "Note" column
-  newSheet.spliceColumns(1, 0, ["Note"]);
-  newSheet.getRow(1).commit();
+  // Add "Note" column only once and keep index consistent
+  let noteColumnIndex = 1;
+  if (newSheet.getRow(1).values[1] !== "Note") {
+    newSheet.spliceColumns(1, 0, ["Note"]);
+    newSheet.getRow(1).commit();
+    noteColumnIndex = 1;
+  } else {
+    noteColumnIndex = 1;
+  }
 
   let rowsSinceLastWrite = 0;
 
-  for (let i = 2; i <= newSheet.rowCount; i++) {
+  for (let i = startRow; i <= newSheet.rowCount; i++) {
     if (stopFlag.stopped) {
       onLog({
         status: "Stopped",
@@ -89,7 +96,7 @@ const profileCleanse = async (
           status: "Invalid URL",
         });
 
-        row.getCell(1).value = "error";
+        row.getCell(noteColumnIndex).value = "error";
         row.commit();
         continue;
       }
@@ -145,7 +152,7 @@ const profileCleanse = async (
           status: "Locked profile",
         });
 
-        row.getCell(1).value = "locked";
+        row.getCell(noteColumnIndex).value = "locked";
         row.commit();
         continue;
       }
@@ -183,7 +190,7 @@ const profileCleanse = async (
         if (matchedKeywords.length > 0) noteValue = matchedKeywords.join(", ");
       }
 
-      row.getCell(1).value = noteValue;
+      row.getCell(noteColumnIndex).value = noteValue;
       row.commit();
 
       onLog({
@@ -219,7 +226,7 @@ const profileCleanse = async (
         error: err.message,
       });
 
-      row.getCell(1).value = "error";
+      row.getCell(noteColumnIndex).value = "error";
       row.commit();
       await delay(getRandomDelay());
     }
