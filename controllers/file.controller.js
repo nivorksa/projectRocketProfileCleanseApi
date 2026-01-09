@@ -153,6 +153,8 @@ const runScrape = async (jobId, config) => {
 
   const stopFlag = { stopped: false, filePath: job.cleanseFilePath };
 
+  runningJobs.set(jobId, { stopFlag });
+
   await ScrapeJob.updateOne(
     { jobId },
     { $push: { logs: { status: "Scraping", message: "Scraping in progress" } } }
@@ -204,6 +206,8 @@ const runScrape = async (jobId, config) => {
       },
     }
   );
+
+  runningJobs.delete(jobId);
 };
 
 /* ------------------ STREAM ------------------ */
@@ -264,13 +268,22 @@ export const streamScrape = async (req, res) => {
 
 export const stopScrape = async (req, res) => {
   const { jobId } = req.body;
+
+  await ScrapeJob.updateOne(
+    { jobId },
+    {
+      $push: {
+        logs: {
+          status: "Stop Requested",
+          message: "Scraping stop requested by user",
+        },
+      },
+      stopRequested: true,
+    }
+  );
+
   const runtime = runningJobs.get(jobId);
   if (runtime) {
-    runtime.logs.push({
-      status: "Stop Requested",
-      message: "Scraping stop requested by user",
-    });
-
     runtime.stopFlag.stopped = true;
   }
 
