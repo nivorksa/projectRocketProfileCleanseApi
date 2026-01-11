@@ -137,7 +137,7 @@ const profileCleanse = async (
 
       // Handle normal profile
       await page.waitForSelector('h1[data-anonymize="person-name"]', {
-        timeout: 5000,
+        timeout: 10000,
       });
 
       const locked = await isLockedProfile(page);
