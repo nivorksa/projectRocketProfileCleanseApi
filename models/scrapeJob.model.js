@@ -47,6 +47,28 @@ const scrapeJobSchema = new Schema(
       default: 1,
     },
 
+    startedAt: {
+      type: Date,
+    },
+
+    endedAt: {
+      type: Date,
+    },
+
+    durationMs: {
+      type: Number,
+      default: 0,
+    },
+
+    avgRowTimeMs: {
+      type: Number,
+      default: 0,
+    },
+
+    totalRows: {
+      type: Number,
+    },
+
     // Logs for SSE
     logs: [
       {

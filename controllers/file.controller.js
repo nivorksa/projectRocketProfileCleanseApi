@@ -93,6 +93,8 @@ export const startScrape = async (req, res) => {
       cleanseFilePath: newFilePath,
       status: "running",
       lastRow: 1,
+      startedAt: new Date(),
+      totalRows: sheet.rowCount - 1,
       logs: [
         { status: "Started", message: "Job created" },
         {
@@ -160,16 +162,25 @@ const runScrape = async (jobId, config) => {
   }
 
   const stopFlag = { stopped: false, filePath: job.cleanseFilePath };
-
   runningJobs.set(jobId, { stopFlag });
 
   await ScrapeJob.updateOne(
     { jobId },
-    { $push: { logs: { status: "Scraping", message: "Scraping in progress" } } }
+    {
+      status: "running",
+      startedAt: job.startedAt || new Date(),
+      $push: {
+        logs: { status: "Scraping", message: "Scraping in progress" },
+      },
+    }
   );
 
-  // ✅ Resume from last processed row
   const startRow = (job.lastRow || 1) + 1;
+
+  let processedRows = 0;
+  let totalRowTimeMs = job.avgRowTimeMs
+    ? job.avgRowTimeMs * Math.max(job.lastRow, 1)
+    : 0;
 
   await profileCleanse(
     sheet,
@@ -188,21 +199,41 @@ const runScrape = async (jobId, config) => {
       profileId: config.goLoginProfileId,
     },
     async (log) => {
-      await ScrapeJob.updateOne(
-        { jobId },
-        {
-          $push: { logs: log },
-          ...(log.row !== undefined ? { $set: { lastRow: log.row } } : {}),
-        }
-      );
+      const update = {
+        $push: { logs: log },
+      };
+
+      if (log.row !== undefined) {
+        update.$set = { lastRow: log.row };
+      }
+
+      if (log.rowTimeMs) {
+        processedRows += 1;
+        totalRowTimeMs += log.rowTimeMs;
+
+        update.$set = {
+          ...(update.$set || {}),
+          avgRowTimeMs: Math.round(totalRowTimeMs / processedRows),
+        };
+      }
+
+      await ScrapeJob.updateOne({ jobId }, update);
     },
     stopFlag
   );
+
+  const finishedAt = new Date();
+  const startedAtTime = job.startedAt
+    ? new Date(job.startedAt).getTime()
+    : finishedAt.getTime();
+  const durationMs = finishedAt.getTime() - startedAtTime;
 
   await ScrapeJob.updateOne(
     { jobId },
     {
       status: stopFlag.stopped ? "stopped" : "done",
+      finishedAt,
+      durationMs,
       cleanseFilePath: stopFlag.filePath,
       $push: {
         logs: {
@@ -241,31 +272,69 @@ export const streamScrape = async (req, res) => {
     const j = await ScrapeJob.findOne({ jobId });
 
     if (!j) {
-      console.warn(`Job ${jobId} not found. Stopping stream.`);
       clearInterval(interval);
       return res.end();
     }
 
+    /* ---------------- Logs ---------------- */
     const newLogs = j.logs.slice(lastSentIndex);
     if (newLogs.length > 0) {
       for (const log of newLogs) {
-        res.write(`data: ${JSON.stringify(log)}\n\n`);
+        res.write(`data: ${JSON.stringify({ type: "log", payload: log })}\n\n`);
       }
       lastSentIndex += newLogs.length;
     }
 
-    // send heartbeat
+    /* ---------------- Time + ETA ---------------- */
+    const now = Date.now();
+    const startedAt = j.startedAt ? new Date(j.startedAt).getTime() : null;
+
+    let elapsedMs = 0;
+    let estimatedTotalMs = null;
+    let remainingMs = null;
+
+    if (startedAt && j.lastRow && j.totalRows && j.lastRow > 0) {
+      elapsedMs = now - startedAt;
+
+      const avgPerRow = elapsedMs / j.lastRow;
+      estimatedTotalMs = Math.round(avgPerRow * j.totalRows);
+      remainingMs = Math.max(estimatedTotalMs - elapsedMs, 0);
+    }
+
+    res.write(
+      `data: ${JSON.stringify({
+        type: "time",
+        payload: {
+          serverTime: now,
+          startedAt,
+          elapsedMs,
+          estimatedTotalMs,
+          remainingMs,
+          processedRows: j.lastRow || 0,
+          totalRows: j.totalRows || 0,
+        },
+      })}\n\n`
+    );
+
+    // heartbeat
     res.write(`:\n\n`);
 
+    /* ---------------- Completion ---------------- */
     if (j.status !== "running") {
       res.write(
         `data: ${JSON.stringify({
-          done: true,
-          filePath: j.cleanseFilePath,
+          type: "done",
+          payload: {
+            status: j.status,
+            filePath: j.cleanseFilePath,
+            startedAt: j.startedAt?.getTime(),
+            finishedAt: j.endedAt?.getTime(),
+            durationMs: j.durationMs,
+          },
         })}\n\n`
       );
       clearInterval(interval);
-      res.end();
+      return res.end();
     }
   }, 1000);
 

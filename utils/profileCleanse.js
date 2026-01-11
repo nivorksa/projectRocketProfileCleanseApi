@@ -66,6 +66,8 @@ const profileCleanse = async (
       break;
     }
 
+    const rowStart = Date.now();
+
     const row = newSheet.getRow(i);
 
     try {
@@ -186,6 +188,8 @@ const profileCleanse = async (
       row.getCell(1).value = noteValue;
       row.commit();
 
+      const rowDuration = Date.now() - rowStart;
+
       onLog({
         row: i,
         status: overallMatch ? "Match" : "Mismatch",
@@ -203,6 +207,7 @@ const profileCleanse = async (
           company: (company || "").toLowerCase(),
           connectionCount: Number(connectionCount) || 0,
         },
+        rowTimeMs: rowDuration,
       });
 
       rowsSinceLastWrite++;
