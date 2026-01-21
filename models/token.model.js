@@ -1,20 +1,21 @@
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
-const userSchema = new Schema(
+const tokenSchema = new Schema(
   {
-    name: {
-      type: String,
-      required: true,
-    },
-
-    email: {
+    accountName: {
       type: String,
       required: true,
       unique: true,
     },
 
-    password: {
+    token: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+
+    userId: {
       type: String,
       required: true,
     },
@@ -24,4 +25,4 @@ const userSchema = new Schema(
   }
 );
 
-export default mongoose.model("User", userSchema);
+export default mongoose.model("Token", tokenSchema);

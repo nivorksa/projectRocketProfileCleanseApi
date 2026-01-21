@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import createError from "../utils/createError.js";
 
 export const verifyToken = (req, res, next) => {
-  const token = req.cookies.accessToken;
+  const token = req.cookies.project_rocket_profile_cleanse_accessToken;
 
   if (!token) {
     return next(createError(401, "You are not authenticated!"));
@@ -15,12 +15,11 @@ export const verifyToken = (req, res, next) => {
     }
 
     // Ensure payload contains the correct fields
-    if (!payload || !payload.id || !payload.role) {
+    if (!payload || !payload.id) {
       return next(createError(403, "Token payload is missing required fields"));
     }
 
     req.userId = payload.id;
-    req.role = payload.role;
 
     next();
   });

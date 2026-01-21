@@ -42,6 +42,7 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   const GL = new GoLogin({
     token,
     profile_id: profileId,
+    disableFontDownloading: true,
   });
 
   const maxRetries = 2;
@@ -50,7 +51,7 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       wsUrl = await GL.start({
-        timeout: 120000,
+        timeout: 0,
         show: true,
         windowSize: { width: 1920, height: 1080 },
         headless: false,

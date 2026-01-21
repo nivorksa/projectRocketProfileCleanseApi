@@ -1,10 +1,12 @@
 import launchGoLoginBrowser from "./goLogin.js";
+import extractPageContent from "./scraper/salesNav/extractPageContent.js";
+import loginRequired from "./scraper/salesNav/loginRequired.js";
+import salesNavIsExpired from "./scraper/salesNav/salesNavIsExpired.js";
 import extractFullName from "./scraper/salesNav/extractFullName.js";
 import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
 import extractCompany from "./scraper/salesNav/extractCompany.js";
 import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
 import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
-import extractPageContent from "./scraper/salesNav/extractPageContent.js";
 import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
 import createNewWorkbook from "./createNewWorkbook.js";
 
@@ -26,21 +28,20 @@ const profileCleanse = async (
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" }
 ) => {
-  // Create a new workbook for cleansing
-  const { newWorkbook, newFilePath } = await createNewWorkbook(
-    worksheet,
-    stopFlag.filePath
-  );
-  stopFlag.filePath = newFilePath;
+  // Use the workbook already created by backend
+  const newWorkbook = worksheet.workbook;
   const newSheet = newWorkbook.getWorksheet(worksheet.name);
 
-  const browser = await launchGoLoginBrowser(goLogin);
+  const browserPromise = launchGoLoginBrowser(goLogin);
+
+  const browser = await browserPromise; // now wait for browser to be ready
+
   const page = await browser.newPage();
 
   // Disable unnecessary resources
   await page.setRequestInterception(true);
   page.on("request", (req) => {
-    const blockedTypes = ["image", "stylesheet", "font", "media", "websocket"];
+    const blockedTypes = ["image", "stylesheet", "font", "media"];
     if (blockedTypes.includes(req.resourceType())) req.abort();
     else req.continue();
   });
@@ -55,10 +56,17 @@ const profileCleanse = async (
 
   for (let i = 2; i <= newSheet.rowCount; i++) {
     if (stopFlag.stopped) {
-      onLog({ message: `Scraping stopped at row ${i}` });
+      onLog({
+        status: "Stopped",
+        row: i,
+        message: `Scraping stopped at row ${i}`,
+      });
+
       await newWorkbook.xlsx.writeFile(stopFlag.filePath);
       break;
     }
+
+    const rowStart = Date.now();
 
     const row = newSheet.getRow(i);
 
@@ -78,30 +86,67 @@ const profileCleanse = async (
         .toLowerCase();
 
       if (!profileUrl || !profileUrl.startsWith("http")) {
-        onLog({ message: JSON.stringify({ row: i, status: "Invalid URL" }) });
+        onLog({
+          row: i,
+          status: "Invalid URL",
+        });
+
         row.getCell(1).value = "error";
         row.commit();
         continue;
       }
 
       await page.goto(profileUrl, {
-        waitUntil: "domcontentloaded",
-        timeout: 45000,
+        waitUntil: "networkidle2", // wait until most XHR requests finish
+        timeout: 0,
       });
 
-      try {
-        await page.waitForSelector('h1[data-anonymize="person-name"]', {
-          timeout: 10000,
-        });
-      } catch {}
+      // Short delay to allow SPA redirect / GraphQL fetch
+      // await delay(4000);
 
-      await delay(1000);
+      // Detect page state
+      const url = page.url();
+
+      // Handle logged out session
+      if (await loginRequired(page)) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+        onLog({
+          errorStatus: "Logged Out",
+          error: "SalesNav session logged out. Please re-login.",
+        });
+
+        stopFlag.stopped = true;
+
+        break;
+      }
+
+      // Handle expired SalesNav subscription
+      if (await salesNavIsExpired(page)) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+        onLog({
+          errorStatus: "Session Expired",
+          error: "Your SalesNav subscription is expired.",
+        });
+
+        stopFlag.stopped = true;
+
+        break;
+      }
+
+      // Handle normal profile
+      await page.waitForSelector('h1[data-anonymize="person-name"]', {
+        timeout: 10000,
+      });
 
       const locked = await isLockedProfile(page);
       if (locked) {
         onLog({
-          message: JSON.stringify({ row: i, status: "Locked profile" }),
+          row: i,
+          status: "Locked profile",
         });
+
         row.getCell(1).value = "locked";
         row.commit();
         continue;
@@ -143,25 +188,26 @@ const profileCleanse = async (
       row.getCell(1).value = noteValue;
       row.commit();
 
+      const rowDuration = Date.now() - rowStart;
+
       onLog({
-        message: JSON.stringify({
-          row: i,
-          status: overallMatch ? "Match" : "Mismatch",
-          matches,
-          note: noteValue,
-          excel: {
-            fullName: fullNameExcel,
-            jobTitle: jobTitleExcel,
-            company: companyExcel,
-            connectionCount: minConnectionCount,
-          },
-          salesnav: {
-            fullName: (fullName || "").toLowerCase(),
-            jobTitle: (jobTitle || "").toLowerCase(),
-            company: (company || "").toLowerCase(),
-            connectionCount: Number(connectionCount) || 0,
-          },
-        }),
+        row: i,
+        status: overallMatch ? "Match" : "Mismatch",
+        matches,
+        note: noteValue,
+        excel: {
+          fullName: fullNameExcel,
+          jobTitle: jobTitleExcel,
+          company: companyExcel,
+          connectionCount: minConnectionCount,
+        },
+        salesnav: {
+          fullName: (fullName || "").toLowerCase(),
+          jobTitle: (jobTitle || "").toLowerCase(),
+          company: (company || "").toLowerCase(),
+          connectionCount: Number(connectionCount) || 0,
+        },
+        rowTimeMs: rowDuration,
       });
 
       rowsSinceLastWrite++;
@@ -173,12 +219,11 @@ const profileCleanse = async (
       await delay(getRandomDelay());
     } catch (err) {
       onLog({
-        message: JSON.stringify({
-          row: i,
-          status: "Error",
-          error: err.message,
-        }),
+        row: i,
+        status: "Error",
+        error: err.message,
       });
+
       row.getCell(1).value = "error";
       row.commit();
       await delay(getRandomDelay());
