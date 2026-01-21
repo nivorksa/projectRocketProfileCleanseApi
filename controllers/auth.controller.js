@@ -60,7 +60,7 @@ export const login = async (req, res, next) => {
 
 export const getCurrentUser = async (req, res, next) => {
   try {
-    const token = req.cookies.accessToken;
+    const token = req.cookies.project_rocket_profile_cleanse_accessToken;
     if (!token) return res.status(401).send("Not authenticated");
 
     const decoded = jwt.verify(token, process.env.JWT_KEY);
@@ -76,7 +76,7 @@ export const logout = async (req, res) => {
     const isProduction = process.env.NODE_ENV === "production";
 
     res
-      .clearCookie("accessToken", {
+      .clearCookie("project_rocket_profile_cleanse_accessToken", {
         httpOnly: true,
         secure: isProduction,
         sameSite: isProduction ? "None" : "Lax",
