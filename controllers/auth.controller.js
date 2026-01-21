@@ -45,7 +45,14 @@ export const login = async (req, res, next) => {
       path: "/",
     };
 
-    res.cookie("accessToken", token, cookieOptions).status(200).send(info);
+    res
+      .cookie(
+        "project_rocket_profile_cleanse_accessToken",
+        token,
+        cookieOptions,
+      )
+      .status(200)
+      .send(info);
   } catch (err) {
     next(err);
   }

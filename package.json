@@ -1,5 +1,5 @@
 {
-  "name": "projectrocketprofilecheckapi",
+  "name": "projectrocketprofilecleanseapi",
   "version": "1.0.0",
   "type": "module",
   "main": "server.js",
