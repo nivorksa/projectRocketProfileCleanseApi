@@ -123,7 +123,7 @@ export const startScrape = async (req, res) => {
     }).catch(async (err) => {
       await ScrapeJob.updateOne(
         { jobId },
-        { status: "error", error: err.message }
+        { status: "error", error: err.message },
       );
     });
   } catch (err) {
@@ -156,7 +156,7 @@ const runScrape = async (jobId, config) => {
   ) {
     await ScrapeJob.updateOne(
       { jobId },
-      { status: "error", error: "Invalid column selection" }
+      { status: "error", error: "Invalid column selection" },
     );
     throw new Error("Invalid column selection");
   }
@@ -172,7 +172,7 @@ const runScrape = async (jobId, config) => {
       $push: {
         logs: { status: "Scraping", message: "Scraping in progress" },
       },
-    }
+    },
   );
 
   const startRow = (job.lastRow || 1) + 1;
@@ -219,7 +219,7 @@ const runScrape = async (jobId, config) => {
 
       await ScrapeJob.updateOne({ jobId }, update);
     },
-    stopFlag
+    stopFlag,
   );
 
   const finishedAt = new Date();
@@ -243,7 +243,7 @@ const runScrape = async (jobId, config) => {
             : "Scraping completed successfully",
         },
       },
-    }
+    },
   );
 
   runningJobs.delete(jobId);
@@ -313,7 +313,7 @@ export const streamScrape = async (req, res) => {
           processedRows: j.lastRow || 0,
           totalRows: j.totalRows || 0,
         },
-      })}\n\n`
+      })}\n\n`,
     );
 
     // heartbeat
@@ -331,7 +331,7 @@ export const streamScrape = async (req, res) => {
             finishedAt: j.endedAt?.getTime(),
             durationMs: j.durationMs,
           },
-        })}\n\n`
+        })}\n\n`,
       );
       clearInterval(interval);
       return res.end();
@@ -356,7 +356,7 @@ export const stopScrape = async (req, res) => {
         },
       },
       stopRequested: true,
-    }
+    },
   );
 
   const runtime = runningJobs.get(jobId);
