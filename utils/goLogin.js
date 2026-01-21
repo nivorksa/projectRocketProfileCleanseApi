@@ -14,11 +14,9 @@ const launchGoLoginBrowser = async ({ token, profileId }) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       wsUrl = await GL.start({
-        timeout: 0, // 2 minutes
-        // Force visible, full-screen mode
+        timeout: 0,
         show: true,
         windowSize: { width: 1920, height: 1080 },
-        // You can also try disabling headless explicitly
         headless: false,
       });
 
