@@ -3,7 +3,7 @@ const extractCompany = async (page) => {
     const company =
       document
         .querySelector(
-          '[data-sn-view-name="lead-current-role"] a[data-anonymize="company-name"]'
+          '[data-sn-view-name="lead-current-role"] [data-anonymize="company-name"]',
         )
         ?.innerText?.trim()
         .toLowerCase() || "";

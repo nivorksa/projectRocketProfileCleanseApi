@@ -26,7 +26,7 @@ const profileCleanse = async (
   },
   goLogin,
   onLog = () => {},
-  stopFlag = { stopped: false, filePath: "" }
+  stopFlag = { stopped: false, filePath: "" },
 ) => {
   // Use the workbook already created by backend
   const newWorkbook = worksheet.workbook;
@@ -136,51 +136,82 @@ const profileCleanse = async (
       }
 
       // Handle normal profile
-      await page.waitForSelector('h1[data-anonymize="person-name"]', {
-        timeout: 10000,
-      });
+
+      // await page.waitForSelector('h1[data-anonymize="person-name"]', {
+      //   timeout: 15000,
+      // });
+
+      await page.waitForSelector(
+        '[data-sn-view-name="lead-current-role"] [data-anonymize="company-name"]',
+        {
+          timeout: 15000,
+        },
+      );
 
       const locked = await isLockedProfile(page);
-      if (locked) {
-        onLog({
-          row: i,
-          status: "Locked profile",
-        });
-
-        row.getCell(1).value = "locked";
-        row.commit();
-        continue;
-      }
 
       // Extract main fields
-      const [fullName, jobTitle, company, connectionCount] = await Promise.all([
-        extractFullName(page),
-        extractJobTitle(page),
-        extractCompany(page),
-        extractConnectionCount(page),
-      ]);
+      let fullName = null;
+      let jobTitle = null;
+      let company = null;
+      let connectionCount = null;
+
+      if (!locked) {
+        [fullName, jobTitle, company, connectionCount] = await Promise.all([
+          extractFullName(page),
+          extractJobTitle(page),
+          extractCompany(page),
+          extractConnectionCount(page),
+        ]);
+      } else {
+        [jobTitle, company, connectionCount] = await Promise.all([
+          extractJobTitle(page),
+          extractCompany(page),
+          extractConnectionCount(page),
+        ]);
+      }
 
       const matches = {
-        fullName: (fullName || "").toLowerCase() === fullNameExcel,
         jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
         company: (company || "").toLowerCase() === companyExcel,
         connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
       };
 
-      const overallMatch =
-        matches.fullName &&
-        matches.jobTitle &&
-        matches.company &&
-        matches.connectionCount;
+      if (!locked) {
+        matches.fullName = (fullName || "").toLowerCase() === fullNameExcel;
+      }
 
-      let noteValue = overallMatch ? "good" : "bad";
+      const hasMismatch = Object.values(matches).some((v) => v === false);
+
+      let status;
+
+      if (locked && hasMismatch) {
+        status = "Locked + Mismatch";
+      } else if (locked) {
+        status = "Locked";
+      } else {
+        status = hasMismatch ? "Mismatch" : "Match";
+      }
+
+      let noteValue;
+
+      if (locked) {
+        noteValue = hasMismatch ? "bad" : "locked";
+      } else {
+        noteValue = hasMismatch ? "bad" : "good";
+      }
 
       // Keyword search after expanding "See more" sections
-      if (overallMatch && keywordSearchEnabled && keywords.length > 0) {
+      if (
+        !locked &&
+        !hasMismatch &&
+        keywordSearchEnabled &&
+        keywords.length > 0
+      ) {
         await expandSeeMore(page);
         const pageContent = (await extractPageContent(page)).toLowerCase();
         const matchedKeywords = keywords.filter((k) =>
-          pageContent.includes(k.toLowerCase())
+          pageContent.includes(k.toLowerCase()),
         );
         if (matchedKeywords.length > 0) noteValue = matchedKeywords.join(", ");
       }
@@ -192,7 +223,7 @@ const profileCleanse = async (
 
       onLog({
         row: i,
-        status: overallMatch ? "Match" : "Mismatch",
+        status,
         matches,
         note: noteValue,
         excel: {
