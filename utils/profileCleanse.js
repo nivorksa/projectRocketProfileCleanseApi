@@ -144,7 +144,7 @@ const profileCleanse = async (
       await page.waitForSelector(
         '[data-sn-view-name="lead-current-role"] [data-anonymize="company-name"]',
         {
-          timeout: 15000,
+          timeout: 20000,
         },
       );
 
