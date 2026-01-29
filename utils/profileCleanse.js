@@ -171,11 +171,25 @@ const profileCleanse = async (
         ]);
       }
 
+      // Normalize connection count based on lock state
+      let normalizedConnectionCount;
+
+      if (connectionCount === "N/A") {
+        normalizedConnectionCount = locked ? null : 0;
+      } else {
+        normalizedConnectionCount = Number(connectionCount);
+      }
+
       const matches = {
         jobTitle: (jobTitle || "").toLowerCase() === jobTitleExcel,
         company: (company || "").toLowerCase() === companyExcel,
-        connectionCount: (Number(connectionCount) || 0) >= minConnectionCount,
       };
+
+      // Only check connection count when profile is NOT locked
+      if (!locked) {
+        matches.connectionCount =
+          (normalizedConnectionCount ?? 0) >= minConnectionCount;
+      }
 
       if (!locked) {
         matches.fullName = (fullName || "").toLowerCase() === fullNameExcel;
@@ -236,7 +250,10 @@ const profileCleanse = async (
           fullName: (fullName || "").toLowerCase(),
           jobTitle: (jobTitle || "").toLowerCase(),
           company: (company || "").toLowerCase(),
-          connectionCount: Number(connectionCount) || 0,
+          connectionCount:
+            normalizedConnectionCount === null
+              ? "N/A"
+              : normalizedConnectionCount,
         },
         rowTimeMs: rowDuration,
       });

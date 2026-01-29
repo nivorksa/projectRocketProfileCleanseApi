@@ -1,44 +1,52 @@
 const extractConnectionCount = async (page) => {
-  // Wait for the "connections" text to appear (up to 5 seconds)
   await page
     .waitForFunction(
       () => {
         const section = document.querySelector("section._header_sqh8tm");
-        if (!section) return false;
-        return section.textContent.toLowerCase().includes("connections");
+        return (
+          section && section.textContent.toLowerCase().includes("connections")
+        );
       },
-      { timeout: 5000 }
+      { timeout: 5000 },
     )
-    .catch(() => {}); // silently ignore timeout
+    .catch(() => {});
 
   return await page.evaluate(() => {
     const headerSection = document.querySelector("section._header_sqh8tm");
-    let connections = "";
+    if (!headerSection) return "N/A";
 
-    if (headerSection) {
-      const allDivs = Array.from(headerSection.querySelectorAll("div"));
-      const bottomLevelDivs = allDivs.filter((div) => {
-        const text = div.textContent?.trim().toLowerCase() || "";
-        const includesConnections = text.includes("connections");
-
-        if (!includesConnections) return false;
-
-        const hasChildDivWithConnections = Array.from(
-          div.querySelectorAll("div")
-        ).some((child) =>
-          child.textContent?.trim().toLowerCase().includes("connections")
-        );
-
-        return !hasChildDivWithConnections;
-      });
-
-      if (bottomLevelDivs.length > 0) {
-        connections = bottomLevelDivs[0].textContent.trim().toLowerCase();
-      }
+    const sectionText = headerSection.textContent.toLowerCase();
+    if (!sectionText.includes("connections")) {
+      return "N/A";
     }
 
-    const connMatch = connections.match(/\d[\d,+]*/);
-    return connMatch ? parseInt(connMatch[0].replace(/[,+]/g, ""), 10) : 0;
+    const allDivs = Array.from(headerSection.querySelectorAll("div"));
+
+    const bottomLevelDivs = allDivs.filter((div) => {
+      const text = div.textContent?.trim().toLowerCase() || "";
+      if (!text.includes("connections")) return false;
+
+      const hasChildWithConnections = Array.from(
+        div.querySelectorAll("div"),
+      ).some((child) =>
+        child.textContent?.toLowerCase().includes("connections"),
+      );
+
+      return !hasChildWithConnections;
+    });
+
+    if (bottomLevelDivs.length === 0) return "N/A";
+
+    const text = bottomLevelDivs[0].textContent;
+    const match = text.match(/\d[\d,+]*/);
+
+    // IMPORTANT PART
+    // If "connections" exists but number is 0, return 0 (valid)
+    if (match) {
+      return parseInt(match[0].replace(/[,+]/g, ""), 10);
+    }
+
+    return "N/A";
   });
 };
 
