@@ -1,3 +1,5 @@
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
 const expandSeeMore = async (page) => {
   try {
     await page.evaluate(() => {
@@ -16,7 +18,9 @@ const expandSeeMore = async (page) => {
         }
       }
     });
-    await page.waitForTimeout(2000); // Allow content to load after expanding
+
+    // Allow content to load after expanding
+    await delay(2000);
   } catch (err) {
     console.error("Error expanding 'see more' sections:", err);
   }
