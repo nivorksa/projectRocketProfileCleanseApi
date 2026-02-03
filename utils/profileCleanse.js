@@ -8,7 +8,6 @@ import extractCompany from "./scraper/salesNav/extractCompany.js";
 import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
 import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
 import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
-import createNewWorkbook from "./createNewWorkbook.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
@@ -185,10 +184,13 @@ const profileCleanse = async (
         company: (company || "").toLowerCase() === companyExcel,
       };
 
-      // Only check connection count when profile is NOT locked
-      if (!locked) {
+      // Check if connection count criterion is applicable
+      const hasVisibleConnectionCount = normalizedConnectionCount !== null;
+
+      // Apply connection count check if applicable
+      if (hasVisibleConnectionCount) {
         matches.connectionCount =
-          (normalizedConnectionCount ?? 0) >= minConnectionCount;
+          normalizedConnectionCount >= minConnectionCount;
       }
 
       if (!locked) {
