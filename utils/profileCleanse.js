@@ -100,39 +100,16 @@ const profileCleanse = async (
         timeout: 0,
       });
 
+      // await page.goto(profileUrl, {
+      //   waitUntil: "domcontentloaded",
+      //   timeout: 0,
+      // });
+
       // Short delay to allow SPA redirect / GraphQL fetch
       // await delay(4000);
 
       // Detect page state
       const url = page.url();
-
-      // Handle logged out session
-      if (await loginRequired(page)) {
-        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
-
-        onLog({
-          errorStatus: "Logged Out",
-          error: "SalesNav session logged out. Please re-login.",
-        });
-
-        stopFlag.stopped = true;
-
-        break;
-      }
-
-      // Handle expired SalesNav subscription
-      if (await salesNavIsExpired(page)) {
-        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
-
-        onLog({
-          errorStatus: "Session Expired",
-          error: "Your SalesNav subscription is expired.",
-        });
-
-        stopFlag.stopped = true;
-
-        break;
-      }
 
       // Handle normal profile
 
@@ -140,12 +117,40 @@ const profileCleanse = async (
       //   timeout: 15000,
       // });
 
-      await page.waitForSelector(
-        '[data-sn-view-name="lead-current-role"] [data-anonymize="company-name"]',
-        {
-          timeout: 20000,
-        },
-      );
+      try {
+        await page.waitForSelector(
+          '[data-sn-view-name="lead-current-role"] [data-anonymize="company-name"]',
+          { timeout: 20000 },
+        );
+      } catch {
+        // Handle logged out session
+        if (await loginRequired(page)) {
+          await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+          onLog({
+            errorStatus: "Logged Out",
+            error: "SalesNav session logged out. Please re-login.",
+          });
+
+          stopFlag.stopped = true;
+
+          break;
+        }
+
+        // Handle expired SalesNav subscription
+        if (await salesNavIsExpired(page)) {
+          await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+          onLog({
+            errorStatus: "Session Expired",
+            error: "Your SalesNav subscription is expired.",
+          });
+
+          stopFlag.stopped = true;
+
+          break;
+        }
+      }
 
       const locked = await isLockedProfile(page);
 
