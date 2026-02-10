@@ -2,12 +2,12 @@ import launchGoLoginBrowser from "./goLogin.js";
 import extractPageContent from "./scraper/salesNav/extractPageContent.js";
 import loginRequired from "./scraper/salesNav/loginRequired.js";
 import salesNavIsExpired from "./scraper/salesNav/salesNavIsExpired.js";
-import extractFullName from "./scraper/salesNav/extractFullName.js";
-import extractJobTitle from "./scraper/salesNav/extractJobTitle.js";
-import extractCompany from "./scraper/salesNav/extractCompany.js";
-import extractConnectionCount from "./scraper/salesNav/extractConnectionCount.js";
+import extractFullName from "./scraper/salesNav/leads/extractFullName.js";
+import extractJobTitle from "./scraper/salesNav/leads/extractJobTitle.js";
+import extractCompany from "./scraper/salesNav/leads/extractCompany.js";
+import extractConnectionCount from "./scraper/salesNav/leads/extractConnectionCount.js";
 import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
-import isLockedProfile from "./scraper/salesNav/isLockedProfile.js";
+import isLockedProfile from "./scraper/salesNav/leads/isLockedProfile.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
