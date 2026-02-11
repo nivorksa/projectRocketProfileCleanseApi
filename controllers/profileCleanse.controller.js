@@ -4,11 +4,11 @@ import path from "path";
 import { randomUUID } from "crypto";
 import profileCleanse from "../utils/profileCleanse.js";
 import createNewWorkbook from "../utils/createNewWorkbook.js";
-import ScrapeJob from "../models/scrapeJob.model.js";
+import ScrapeJob from "../models/job.model.js";
 import { runningJobs } from "../utils/jobRuntime.js";
 
 /* ------------------ START JOB ------------------ */
-export const startScrape = async (req, res) => {
+export const startProfileCleanse = async (req, res) => {
   try {
     const userId = req.userId;
 
@@ -82,7 +82,7 @@ export const startScrape = async (req, res) => {
 
     res.json({ jobId });
 
-    runScrape(jobId, {
+    runProfileCleanse(jobId, {
       ...req.body,
       cleanseFilePath: newFilePath,
     }).catch(async (err) => {
@@ -98,7 +98,7 @@ export const startScrape = async (req, res) => {
 
 /* ------------------ SCRAPE RUNNER ------------------ */
 
-const runScrape = async (jobId, config) => {
+const runProfileCleanse = async (jobId, config) => {
   const job = await ScrapeJob.findOne({ jobId });
 
   const workbook = new ExcelJS.Workbook();
@@ -216,7 +216,7 @@ const runScrape = async (jobId, config) => {
 
 /* ------------------ STREAM ------------------ */
 
-export const streamScrape = async (req, res) => {
+export const streamProfileCleanse = async (req, res) => {
   const { jobId, from = 0 } = req.query;
 
   const job = await ScrapeJob.findOne({ jobId });
@@ -308,7 +308,7 @@ export const streamScrape = async (req, res) => {
 
 /* ------------------ STOP ------------------ */
 
-export const stopScrape = async (req, res) => {
+export const stopJob = async (req, res) => {
   const { jobId } = req.body;
 
   await ScrapeJob.updateOne(

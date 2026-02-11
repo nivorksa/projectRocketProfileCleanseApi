@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import path from "path";
-import ScrapeJob from "../models/scrapeJob.model.js";
+import ScrapeJob from "../models/job.model.js";
 
 /* ------------------ UPLOAD ------------------ */
 
