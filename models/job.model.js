@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 
-const scrapeJobSchema = new Schema(
+const jobSchema = new Schema(
   {
     jobId: {
       type: String,
@@ -11,6 +11,12 @@ const scrapeJobSchema = new Schema(
 
     userId: {
       type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      index: true,
+    },
+
+    jobType: {
+      type: String,
       required: true,
       index: true,
     },
@@ -85,21 +91,14 @@ const scrapeJobSchema = new Schema(
       },
     ],
 
-    config: {
-      fullNameColumn: String,
-      companyColumn: String,
-      jobTitleColumn: String,
-      urlColumn: String,
-      minimumConnections: Number,
-      keywordSearchEnabled: Boolean,
-      keywords: [String],
-      goLoginToken: String,
-      goLoginProfileId: String,
+    jobData: {
+      type: Schema.Types.Mixed,
+      default: {},
     },
 
     error: String,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-export default mongoose.model("ScrapeJob", scrapeJobSchema);
+export default mongoose.model("Job", jobSchema);

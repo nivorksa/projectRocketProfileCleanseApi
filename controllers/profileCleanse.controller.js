@@ -2,9 +2,9 @@ import fs from "fs";
 import ExcelJS from "exceljs";
 import path from "path";
 import { randomUUID } from "crypto";
-import profileCleanse from "../utils/profileCleanse.js";
+import profileCleanse from "../engines/profileCleanse.js";
 import createNewWorkbook from "../utils/createNewWorkbook.js";
-import ScrapeJob from "../models/job.model.js";
+import Job from "../models/job.model.js";
 import { runningJobs } from "../utils/jobRuntime.js";
 
 /* ------------------ START JOB ------------------ */
@@ -27,9 +27,11 @@ export const startProfileCleanse = async (req, res) => {
       goLoginProfileId,
     } = req.body;
 
-    // Prevent duplicate jobs per user
-    const existing = await ScrapeJob.findOne({
+    const jobType = "profileCleanse";
+
+    const existing = await Job.findOne({
       userId,
+      jobType,
       status: "running",
     });
 
@@ -49,9 +51,10 @@ export const startProfileCleanse = async (req, res) => {
 
     const { newFilePath } = await createNewWorkbook(sheet, filePath);
 
-    const job = await ScrapeJob.create({
+    const job = await Job.create({
       jobId,
       userId,
+      jobType,
       sheetName,
       filePath,
       originalFileName,
@@ -67,7 +70,7 @@ export const startProfileCleanse = async (req, res) => {
           message: "Initializing browser session",
         },
       ],
-      config: {
+      jobData: {
         fullNameColumn,
         companyColumn,
         jobTitleColumn,
@@ -86,10 +89,7 @@ export const startProfileCleanse = async (req, res) => {
       ...req.body,
       cleanseFilePath: newFilePath,
     }).catch(async (err) => {
-      await ScrapeJob.updateOne(
-        { jobId },
-        { status: "error", error: err.message },
-      );
+      await Job.updateOne({ jobId }, { status: "error", error: err.message });
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -98,8 +98,8 @@ export const startProfileCleanse = async (req, res) => {
 
 /* ------------------ SCRAPE RUNNER ------------------ */
 
-const runProfileCleanse = async (jobId, config) => {
-  const job = await ScrapeJob.findOne({ jobId });
+const runProfileCleanse = async (jobId) => {
+  const job = await Job.findOne({ jobId });
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(job.cleanseFilePath);
@@ -111,15 +111,15 @@ const runProfileCleanse = async (jobId, config) => {
 
   const idx = (name) => headers.indexOf(name.toLowerCase());
 
-  const fullNameIndex = idx(config.fullNameColumn);
-  const jobTitleIndex = idx(config.jobTitleColumn);
-  const companyIndex = idx(config.companyColumn);
-  const urlIndex = idx(config.urlColumn);
+  const fullNameIndex = idx(job.jobData.fullNameColumn);
+  const jobTitleIndex = idx(job.jobData.jobTitleColumn);
+  const companyIndex = idx(job.jobData.companyColumn);
+  const urlIndex = idx(job.jobData.urlColumn);
 
   if (
     [fullNameIndex, jobTitleIndex, companyIndex, urlIndex].some((i) => i < 0)
   ) {
-    await ScrapeJob.updateOne(
+    await Job.updateOne(
       { jobId },
       { status: "error", error: "Invalid column selection" },
     );
@@ -129,7 +129,7 @@ const runProfileCleanse = async (jobId, config) => {
   const stopFlag = { stopped: false, filePath: job.cleanseFilePath };
   runningJobs.set(jobId, { stopFlag });
 
-  await ScrapeJob.updateOne(
+  await Job.updateOne(
     { jobId },
     {
       status: "running",
@@ -155,13 +155,13 @@ const runProfileCleanse = async (jobId, config) => {
       jobTitleColumnIndex: jobTitleIndex,
       companyColumnIndex: companyIndex,
       urlColumnIndex: urlIndex,
-      minConnectionCount: Number(config.minimumConnections),
-      keywordSearchEnabled: config.keywordSearchEnabled,
-      keywords: config.keywords || [],
+      minConnectionCount: Number(job.jobData.minimumConnections),
+      keywordSearchEnabled: job.jobData.keywordSearchEnabled,
+      keywords: job.jobData.keywords || [],
     },
     {
-      token: config.goLoginToken,
-      profileId: config.goLoginProfileId,
+      token: job.jobData.goLoginToken,
+      profileId: job.jobData.goLoginProfileId,
     },
     async (log) => {
       const update = {
@@ -182,7 +182,7 @@ const runProfileCleanse = async (jobId, config) => {
         };
       }
 
-      await ScrapeJob.updateOne({ jobId }, update);
+      await Job.updateOne({ jobId }, update);
     },
     stopFlag,
   );
@@ -193,7 +193,7 @@ const runProfileCleanse = async (jobId, config) => {
     : finishedAt.getTime();
   const durationMs = finishedAt.getTime() - startedAtTime;
 
-  await ScrapeJob.updateOne(
+  await Job.updateOne(
     { jobId },
     {
       status: stopFlag.stopped ? "stopped" : "done",
@@ -219,7 +219,7 @@ const runProfileCleanse = async (jobId, config) => {
 export const streamProfileCleanse = async (req, res) => {
   const { jobId, from = 0 } = req.query;
 
-  const job = await ScrapeJob.findOne({ jobId });
+  const job = await Job.findOne({ jobId });
 
   if (!job || job.userId.toString() !== req.userId) {
     return res.sendStatus(403);
@@ -234,7 +234,7 @@ export const streamProfileCleanse = async (req, res) => {
   let lastSentIndex = Number(from);
 
   const interval = setInterval(async () => {
-    const j = await ScrapeJob.findOne({ jobId });
+    const j = await Job.findOne({ jobId });
 
     if (!j) {
       clearInterval(interval);
@@ -304,41 +304,4 @@ export const streamProfileCleanse = async (req, res) => {
   }, 1000);
 
   req.on("close", () => clearInterval(interval));
-};
-
-/* ------------------ STOP ------------------ */
-
-export const stopJob = async (req, res) => {
-  const { jobId } = req.body;
-
-  await ScrapeJob.updateOne(
-    { jobId },
-    {
-      $push: {
-        logs: {
-          status: "Stop Requested",
-          message: "Scraping stop requested by user",
-        },
-      },
-      stopRequested: true,
-    },
-  );
-
-  const runtime = runningJobs.get(jobId);
-  if (runtime) {
-    runtime.stopFlag.stopped = true;
-  }
-
-  res.sendStatus(200);
-};
-
-/* ------------------ JOB LIST ------------------ */
-
-export const listJobs = async (req, res) => {
-  const jobs = await ScrapeJob.find({
-    userId: req.userId,
-    status: "running",
-  }).sort({ createdAt: -1 });
-
-  res.json(jobs);
 };

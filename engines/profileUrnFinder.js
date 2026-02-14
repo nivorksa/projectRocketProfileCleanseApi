@@ -1,4 +1,6 @@
 import launchGoLoginBrowser from "../utils/goLogin.js";
+import loginRequired from "../utils/scraper/salesNav/loginRequired.js";
+import salesNavIsExpired from "../utils/scraper/salesNav/salesNavIsExpired.js";
 import extractSalesNavUrn from "../utils/scraper/linkedIn/leads/extractSalesNavUrn.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -11,10 +13,12 @@ const profileUrnFinder = async (
   onLog = () => {},
   stopFlag = { stopped: false, filePath: "" },
 ) => {
-  const workbook = worksheet.workbook;
-  const sheet = workbook.getWorksheet(worksheet.name);
+  const newWorkbook = worksheet.workbook;
+  const newSheet = newWorkbook.getWorksheet(worksheet.name);
 
-  const browser = await launchGoLoginBrowser(goLogin);
+  const browserPromise = launchGoLoginBrowser(goLogin);
+  const browser = await browserPromise; // now wait for browser to be ready
+
   const page = await browser.newPage();
 
   // Block unnecessary resources
@@ -24,23 +28,25 @@ const profileUrnFinder = async (
     blocked.includes(req.resourceType()) ? req.abort() : req.continue();
   });
 
-  await page.setViewport({ width: 1366, height: 768 });
+  // await page.setViewport({ width: 1366, height: 768 });
 
   // Add "Note" column next to URL
-  sheet.spliceColumns(1, 0, ["Profile URN"]);
-  sheet.getRow(1).commit();
+  newSheet.spliceColumns(1, 0, ["Profile URN"]);
+  newSheet.getRow(1).commit();
 
   let rowsSinceSave = 0;
 
-  for (let i = 2; i <= sheet.rowCount; i++) {
+  for (let i = 2; i <= newSheet.rowCount; i++) {
     if (stopFlag.stopped) {
       onLog({ row: i, status: "Stopped", message: `Stopped at row ${i}` });
-      await workbook.xlsx.writeFile(stopFlag.filePath);
+
+      await newWorkbook.xlsx.writeFile(stopFlag.filePath);
       break;
     }
 
     const rowStart = Date.now();
-    const row = sheet.getRow(i);
+
+    const row = newSheet.getRow(i);
 
     try {
       const url = row.getCell(urlColumnIndex + 1).text.trim();
@@ -52,7 +58,38 @@ const profileUrnFinder = async (
         continue;
       }
 
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 0 });
+      await page.goto(url, {
+        waitUntil: "load",
+        timeout: 0,
+      });
+
+      // Handle logged out session
+      if (await loginRequired(page)) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+        onLog({
+          errorStatus: "Logged Out",
+          error: "SalesNav session logged out. Please re-login.",
+        });
+
+        stopFlag.stopped = true;
+
+        break;
+      }
+
+      // Handle expired SalesNav subscription
+      if (await salesNavIsExpired(page)) {
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
+
+        onLog({
+          errorStatus: "Session Expired",
+          error: "Your SalesNav subscription is expired.",
+        });
+
+        stopFlag.stopped = true;
+
+        break;
+      }
 
       const urn = await extractSalesNavUrn(page);
 
@@ -63,14 +100,14 @@ const profileUrnFinder = async (
 
       onLog({
         row: i,
-        status: urn && urn !== "N/A" ? "URN Found" : "Not Found",
+        status: urn && urn !== "N/A" ? "Found" : "Not Found",
         urn,
         rowTimeMs: rowTime,
       });
 
       rowsSinceSave++;
       if (rowsSinceSave >= 10) {
-        await workbook.xlsx.writeFile(stopFlag.filePath);
+        await newWorkbook.xlsx.writeFile(stopFlag.filePath);
         rowsSinceSave = 0;
       }
 
@@ -91,7 +128,7 @@ const profileUrnFinder = async (
   }
 
   if (rowsSinceSave > 0) {
-    await workbook.xlsx.writeFile(stopFlag.filePath);
+    await newWorkbook.xlsx.writeFile(stopFlag.filePath);
   }
 
   await browser.close();

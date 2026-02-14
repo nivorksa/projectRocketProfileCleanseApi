@@ -1,7 +1,7 @@
 import fs from "fs";
 import ExcelJS from "exceljs";
 import { randomUUID } from "crypto";
-import ScrapeJob from "../models/job.model.js";
+import Job from "../models/job.model.js";
 import profileUrnFinder from "../engines/profileUrnFinder.js";
 import createNewWorkbook from "../utils/createNewWorkbook.js";
 import { runningJobs } from "../utils/jobRuntime.js";
@@ -19,6 +19,18 @@ export const startScrapeUrn = async (req, res) => {
       goLoginProfileId,
     } = req.body;
 
+    const jobType = "scrapeUrn";
+
+    const existing = await Job.findOne({
+      userId,
+      jobType,
+      status: "running",
+    });
+
+    if (existing) {
+      return res.json({ jobId: existing.jobId });
+    }
+
     if (!fs.existsSync(filePath)) {
       return res.status(400).json({ message: "File not found" });
     }
@@ -31,9 +43,10 @@ export const startScrapeUrn = async (req, res) => {
 
     const { newFilePath } = await createNewWorkbook(sheet, filePath);
 
-    const job = await ScrapeJob.create({
+    const job = await Job.create({
       jobId,
       userId,
+      jobType,
       sheetName,
       filePath,
       originalFileName,
@@ -42,8 +55,14 @@ export const startScrapeUrn = async (req, res) => {
       lastRow: 1,
       startedAt: new Date(),
       totalRows: sheet.rowCount - 1,
-      logs: [{ status: "Started", message: "URN extraction started" }],
-      config: {
+      logs: [
+        { status: "Started", message: "Job created" },
+        {
+          status: "Launching GoLogin",
+          message: "Initializing browser session",
+        },
+      ],
+      jobData: {
         urlColumn,
         goLoginToken,
         goLoginProfileId,
@@ -52,21 +71,11 @@ export const startScrapeUrn = async (req, res) => {
 
     res.json({ jobId });
 
-    runScrapeUrn(jobId).catch(async (err) => {
-      await ScrapeJob.updateOne(
-        { jobId },
-        {
-          status: "error",
-          error: err.message,
-          $push: {
-            logs: {
-              status: "Error",
-              message: "Job crashed",
-              error: err.message,
-            },
-          },
-        },
-      );
+    runScrapeUrn(jobId, {
+      ...req.body,
+      cleanseFilePath: newFilePath,
+    }).catch(async (err) => {
+      await Job.updateOne({ jobId }, { status: "error", error: err.message });
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -74,7 +83,7 @@ export const startScrapeUrn = async (req, res) => {
 };
 
 const runScrapeUrn = async (jobId) => {
-  const job = await ScrapeJob.findOne({ jobId });
+  const job = await Job.findOne({ jobId });
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(job.cleanseFilePath);
@@ -84,52 +93,79 @@ const runScrapeUrn = async (jobId) => {
     .getRow(1)
     .values.map((v) => (typeof v === "string" ? v.toLowerCase() : v));
 
-  const urlIndex = headers.indexOf(job.config.urlColumn.toLowerCase());
+  const urlIndex = headers.indexOf(job.jobData.urlColumn.toLowerCase());
 
   if (urlIndex < 0) throw new Error("Invalid URL column");
 
   const stopFlag = { stopped: false, filePath: job.cleanseFilePath };
   runningJobs.set(jobId, { stopFlag });
 
-  let processed = 0;
-  let totalTime = 0;
+  await Job.updateOne(
+    { jobId },
+    {
+      status: "running",
+      startedAt: job.startedAt || new Date(),
+      $push: {
+        logs: { status: "Scraping", message: "Scraping in progress" },
+      },
+    },
+  );
+
+  let processedRows = 0;
+  let totalRowTimeMs = job.avgRowTimeMs
+    ? job.avgRowTimeMs * Math.max(job.lastRow, 1)
+    : 0;
 
   await profileUrnFinder(
     sheet,
     { urlColumnIndex: urlIndex },
     {
-      token: job.config.goLoginToken,
-      profileId: job.config.goLoginProfileId,
+      token: job.jobData.goLoginToken,
+      profileId: job.jobData.goLoginProfileId,
     },
     async (log) => {
       const update = { $push: { logs: log } };
 
-      if (log.row) update.$set = { lastRow: log.row };
+      if (log.row !== undefined) {
+        update.$set = { lastRow: log.row };
+      }
 
       if (log.rowTimeMs) {
-        processed++;
-        totalTime += log.rowTimeMs;
+        processedRows += 1;
+        totalRowTimeMs += log.rowTimeMs;
+
         update.$set = {
           ...(update.$set || {}),
-          avgRowTimeMs: Math.round(totalTime / processed),
+          avgRowTimeMs: Math.round(totalRowTimeMs / processedRows),
         };
       }
 
-      await ScrapeJob.updateOne({ jobId }, update);
+      await Job.updateOne({ jobId }, update);
     },
     stopFlag,
   );
 
   const finishedAt = new Date();
-  const durationMs = finishedAt - new Date(job.startedAt);
+  const startedAtTime = job.startedAt
+    ? new Date(job.startedAt).getTime()
+    : finishedAt.getTime();
+  const durationMs = finishedAt.getTime() - startedAtTime;
 
-  await ScrapeJob.updateOne(
+  await Job.updateOne(
     { jobId },
     {
       status: stopFlag.stopped ? "stopped" : "done",
       finishedAt,
       durationMs,
       cleanseFilePath: stopFlag.filePath,
+      $push: {
+        logs: {
+          status: stopFlag.stopped ? "Stopped" : "Completed",
+          message: stopFlag.stopped
+            ? "Scraping stopped safely"
+            : "Scraping completed successfully",
+        },
+      },
     },
   );
 
@@ -139,7 +175,7 @@ const runScrapeUrn = async (jobId) => {
 export const streamScrapeUrn = async (req, res) => {
   const { jobId, from = 0 } = req.query;
 
-  const job = await ScrapeJob.findOne({ jobId });
+  const job = await Job.findOne({ jobId });
 
   if (!job || job.userId.toString() !== req.userId) {
     return res.sendStatus(403);
@@ -154,7 +190,7 @@ export const streamScrapeUrn = async (req, res) => {
   let lastSentIndex = Number(from);
 
   const interval = setInterval(async () => {
-    const j = await ScrapeJob.findOne({ jobId });
+    const j = await Job.findOne({ jobId });
 
     if (!j) {
       clearInterval(interval);
@@ -177,8 +213,7 @@ export const streamScrapeUrn = async (req, res) => {
       lastSentIndex += newLogs.length;
     }
 
-    /* ---------------- TIME + ETA ---------------- */
-
+    /* ---------------- Time + ETA ---------------- */
     const now = Date.now();
     const startedAt = j.startedAt ? new Date(j.startedAt).getTime() : null;
 

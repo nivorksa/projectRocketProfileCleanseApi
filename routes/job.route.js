@@ -1,9 +1,8 @@
 import express from "express";
+import { listJobs, stopJob } from "../controllers/job.controller.js";
 import {
   startProfileCleanse,
   streamProfileCleanse,
-  stopJob,
-  listJobs,
 } from "../controllers/profileCleanse.controller.js";
 import {
   startScrapeUrn,
@@ -15,11 +14,11 @@ const router = express.Router();
 
 // general job routes
 router.get("/list-jobs", verifyToken, listJobs);
+router.post("/stop-job", verifyToken, stopJob);
 
 // profile cleansing routes
 router.post("/profile-cleanse/start", verifyToken, startProfileCleanse);
 router.get("/profile-cleanse/stream", verifyToken, streamProfileCleanse);
-router.post("/profile-cleanse/stop", verifyToken, stopJob);
 
 // profile urn finder routes
 router.post("/profile-urn-finder/start", verifyToken, startScrapeUrn);

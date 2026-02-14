@@ -1,13 +1,13 @@
-import launchGoLoginBrowser from "./goLogin.js";
-import extractPageContent from "./scraper/salesNav/extractPageContent.js";
-import loginRequired from "./scraper/salesNav/loginRequired.js";
-import salesNavIsExpired from "./scraper/salesNav/salesNavIsExpired.js";
-import extractFullName from "./scraper/salesNav/leads/extractFullName.js";
-import extractJobTitle from "./scraper/salesNav/leads/extractJobTitle.js";
-import extractCompany from "./scraper/salesNav/leads/extractCompany.js";
-import extractConnectionCount from "./scraper/salesNav/leads/extractConnectionCount.js";
-import expandSeeMore from "./scraper/salesNav/expandSeeMore.js";
-import isLockedProfile from "./scraper/salesNav/leads/isLockedProfile.js";
+import launchGoLoginBrowser from "../utils/goLogin.js";
+import extractPageContent from "../utils/scraper/salesNav/extractPageContent.js";
+import loginRequired from "../utils/scraper/salesNav/loginRequired.js";
+import salesNavIsExpired from "../utils/scraper/salesNav/salesNavIsExpired.js";
+import extractFullName from "../utils/scraper/salesNav/leads/extractFullName.js";
+import extractJobTitle from "../utils/scraper/salesNav/leads/extractJobTitle.js";
+import extractCompany from "../utils/scraper/salesNav/leads/extractCompany.js";
+import extractConnectionCount from "../utils/scraper/salesNav/leads/extractConnectionCount.js";
+import expandSeeMore from "../utils/scraper/salesNav/expandSeeMore.js";
+import isLockedProfile from "../utils/scraper/salesNav/leads/isLockedProfile.js";
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 const getRandomDelay = () => Math.floor(Math.random() * 500) + 500;
@@ -45,7 +45,7 @@ const profileCleanse = async (
     else req.continue();
   });
 
-  await page.setViewport({ width: 1366, height: 768 });
+  // await page.setViewport({ width: 1366, height: 768 });
 
   // Add "Note" column
   newSheet.spliceColumns(1, 0, ["Note"]);
