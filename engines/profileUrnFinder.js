@@ -58,10 +58,12 @@ const profileUrnFinder = async (
         continue;
       }
 
-      await page.goto(url, {
-        waitUntil: "load",
-        timeout: 0,
-      });
+      // await page.goto(url, {
+      //   waitUntil: "load",
+      //   timeout: 0,
+      // });
+
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 0 });
 
       // Handle logged out session
       if (await loginRequired(page)) {
