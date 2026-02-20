@@ -8,6 +8,10 @@ import {
   startScrapeUrn,
   streamScrapeUrn,
 } from "../controllers/scrapeUrn.controller.js";
+import {
+  startCompanyUrlFinder,
+  streamCompanyUrlFinder,
+} from "../controllers/companyUrlFinder.controller.js";
 import { verifyToken } from "../middleware/jwt.js";
 
 const router = express.Router();
@@ -23,5 +27,9 @@ router.get("/profile-cleanse/stream", verifyToken, streamProfileCleanse);
 // profile urn finder routes
 router.post("/profile-urn-finder/start", verifyToken, startScrapeUrn);
 router.get("/profile-urn-finder/stream", verifyToken, streamScrapeUrn);
+
+// company url finder routes
+router.post("/company-finder/start", verifyToken, startCompanyUrlFinder);
+router.get("/company-finder/stream", verifyToken, streamCompanyUrlFinder);
 
 export default router;
