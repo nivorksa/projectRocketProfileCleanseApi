@@ -11,13 +11,26 @@ export const addToken = async (req, res, next) => {
 
     const { accountName, token } = req.body;
 
-    // Check if account name is already used
-    const exists = await Token.findOne({ accountName });
-    if (exists) {
+    // Check account name per user
+    const accountExists = await Token.findOne({
+      userId: req.userId,
+      accountName,
+    });
+
+    if (accountExists) {
       return next(createError(400, "Account name already exists"));
     }
 
-    // Save the token
+    // Check token per user
+    const tokenExists = await Token.findOne({
+      userId: req.userId,
+      token,
+    });
+
+    if (tokenExists) {
+      return next(createError(400, "Token already exists"));
+    }
+
     const newToken = new Token({
       accountName,
       token,
@@ -27,6 +40,12 @@ export const addToken = async (req, res, next) => {
     const saved = await newToken.save();
     res.status(201).json(saved);
   } catch (err) {
+    // Handle duplicate key error from MongoDB
+    if (err.code === 11000) {
+      return next(
+        createError(400, "Account name or token already exists for this user"),
+      );
+    }
     next(err);
   }
 };

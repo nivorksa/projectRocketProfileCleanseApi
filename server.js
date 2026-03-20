@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import authRoutes from "./routes/auth.route.js";
 import fileRoutes from "./routes/file.route.js";
+import jobsRoutes from "./routes/job.route.js";
 import tokenRoutes from "./routes/token.route.js";
 import { allowedOrigins } from "./utils/config.js";
 
@@ -43,7 +44,7 @@ app.use(
       }
     },
     credentials: true,
-  })
+  }),
 );
 
 app.use(express.json());
@@ -55,6 +56,7 @@ const upload = multer({ dest: "uploads/" });
 app.use("/api/auth", authRoutes);
 app.use("/api/file", fileRoutes);
 app.use("/api/token", tokenRoutes);
+app.use("/api/jobs", jobsRoutes);
 
 // Global error handler
 app.use((err, req, res, next) => {
