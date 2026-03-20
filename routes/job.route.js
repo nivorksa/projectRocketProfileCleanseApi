@@ -12,6 +12,10 @@ import {
   startCompanyUrlFinder,
   streamCompanyUrlFinder,
 } from "../controllers/companyUrlFinder.controller.js";
+import {
+  startDataCleanse,
+  streamDataCleanse,
+} from "../controllers/dataCleanse.controller.js";
 import { verifyToken } from "../middleware/jwt.js";
 
 const router = express.Router();
@@ -31,5 +35,9 @@ router.get("/profile-urn-finder/stream", verifyToken, streamScrapeUrn);
 // company url finder routes
 router.post("/company-finder/start", verifyToken, startCompanyUrlFinder);
 router.get("/company-finder/stream", verifyToken, streamCompanyUrlFinder);
+
+// data cleanse routes
+router.post("/data-cleanse/start", verifyToken, startDataCleanse);
+router.get("/data-cleanse/stream", verifyToken, streamDataCleanse);
 
 export default router;
