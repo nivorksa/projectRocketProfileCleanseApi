@@ -39,10 +39,10 @@ export const login = async (req, res, next) => {
 
     const cookieOptions = {
       httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "None" : "Lax",
-      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      secure: isProduction, // Still keep this true for production
+      sameSite: "lax", // No longer need 'none'!
       path: "/",
+      expires: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     };
 
     res
@@ -76,12 +76,11 @@ export const logout = async (req, res) => {
     const isProduction = process.env.NODE_ENV === "production";
 
     res
-      .clearCookie("project_rocket_profile_cleanse_accessToken", {
+      .clearCookie("project_ravindu_pos_accessToken", {
         httpOnly: true,
-        secure: isProduction,
-        sameSite: isProduction ? "None" : "Lax",
+        secure: isProduction, // Keep true for HTTPS
+        sameSite: "lax",
         path: "/",
-        expires: new Date(0),
       })
       .status(200)
       .send("User has been logged out!");
