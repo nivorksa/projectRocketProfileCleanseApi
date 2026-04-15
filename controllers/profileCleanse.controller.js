@@ -64,8 +64,9 @@ export const startProfileCleanse = async (req, res) => {
       startedAt: new Date(),
       totalRows: sheet.rowCount - 1,
       logs: [
-        { status: "Started", message: "Job created" },
+        { id: randomUUID(), status: "Started", message: "Job created" },
         {
+          id: randomUUID(),
           status: "Launching GoLogin",
           message: "Initializing browser session",
         },
@@ -135,7 +136,11 @@ const runProfileCleanse = async (jobId) => {
       status: "running",
       startedAt: job.startedAt || new Date(),
       $push: {
-        logs: { status: "Scraping", message: "Scraping in progress" },
+        logs: {
+          id: randomUUID(),
+          status: "Scraping",
+          message: "Scraping in progress",
+        },
       },
     },
   );
@@ -165,7 +170,7 @@ const runProfileCleanse = async (jobId) => {
     },
     async (log) => {
       const update = {
-        $push: { logs: log },
+        $push: { logs: { id: randomUUID(), ...log } },
       };
 
       if (log.row !== undefined) {
@@ -202,6 +207,7 @@ const runProfileCleanse = async (jobId) => {
       cleanseFilePath: stopFlag.filePath,
       $push: {
         logs: {
+          id: randomUUID(),
           status: stopFlag.stopped ? "Stopped" : "Completed",
           message: stopFlag.stopped
             ? "Scraping stopped safely"
