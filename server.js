@@ -20,6 +20,8 @@ const __dirname = dirname(__filename);
 const app = express();
 const httpServer = http.createServer(app);
 
+app.set("trust proxy", 1);
+
 dotenv.config();
 
 mongoose.set("strictQuery", true);
