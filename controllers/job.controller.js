@@ -4,15 +4,18 @@ import { runningJobs } from "../utils/jobRuntime.js";
 /* ------------------ JOB LIST ------------------ */
 
 export const listJobs = async (req, res) => {
-  const { jobType } = req.query;
+  const { jobType, status } = req.query;
 
   const query = {
     userId: req.userId,
-    status: "running",
   };
 
   if (jobType) {
     query.jobType = jobType;
+  }
+
+  if (status) {
+    query.status = { $in: status.split(",") };
   }
 
   const jobs = await ScrapeJob.find(query).sort({ createdAt: -1 });
